@@ -71,6 +71,7 @@ export function CropPanel() {
     useImageStore.setState({ params: nextParams });
     void generatePreview(nextParams);
     useEditorUiStore.getState().syncCropDraftWithParams();
+    useEditorUiStore.getState().setEditorTool('select');
   };
 
   const clearCrop = () => {
@@ -79,6 +80,7 @@ export function CropPanel() {
     useImageStore.setState({ params: nextParams });
     void generatePreview(nextParams);
     useEditorUiStore.getState().syncCropDraftWithParams();
+    useEditorUiStore.getState().setEditorTool('select');
   };
 
   const useFullImage = () => {
@@ -91,6 +93,7 @@ export function CropPanel() {
     useImageStore.setState({ params: nextParams });
     void generatePreview(nextParams);
     useEditorUiStore.getState().syncCropDraftWithParams();
+    useEditorUiStore.getState().setEditorTool('select');
   };
 
   return (

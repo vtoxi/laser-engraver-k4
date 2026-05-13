@@ -99,6 +99,11 @@ body {
   margin-bottom: 20px;
 }
 
+/** Inner breathing room for settings cards (lf-panel has no default padding). */
+.lf-settings .lf-panel {
+  padding: 22px 24px 24px;
+}
+
 .lf-settings__foot {
   margin-top: 32px;
   padding-top: 20px;

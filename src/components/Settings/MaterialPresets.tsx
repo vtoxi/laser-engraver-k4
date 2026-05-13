@@ -41,7 +41,7 @@ export function MaterialPresets() {
   };
 
   return (
-    <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{ color: '#ccc', fontSize: 13, fontWeight: 600 }}>Preset library</div>
       <div style={{ maxHeight: 200, overflow: 'auto', border: '1px solid #333', borderRadius: 6 }}>
         {presets.map((p) => (

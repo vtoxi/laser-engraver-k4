@@ -135,6 +135,7 @@ export function EditorToolbar() {
     resetMachineHead();
     syncCropDraftWithParams();
     runPreview();
+    setEditorTool('select');
   };
 
   const applyCrop = () => {
@@ -148,6 +149,7 @@ export function EditorToolbar() {
     void useImageStore.getState().generatePreview(nextParams);
     syncCropDraftWithParams();
     useEditorUiStore.getState().clampMachineHead();
+    setEditorTool('select');
   };
 
   const cancelCrop = () => {

@@ -4,6 +4,7 @@ import { useEditorUiStore } from '../../store/editorUiStore';
 import { useImageStore } from '../../store/imageStore';
 import type { CropRectPayload } from '../../store/imageStore';
 import { computeWorkAreaPixels, useSettingsStore } from '../../store/settingsStore';
+import { imageClipPathFromCrop } from '../../lib/imageClipPath';
 import { jobMachineRegion } from '../../lib/jobMachineRegion';
 import type { BedStackLayout } from './BedFramedImage';
 import { EditorAdvancedToolbar } from './EditorAdvancedToolbar';
@@ -80,6 +81,20 @@ export function EditorBedWorkspace() {
     if (!imageLoaded || imageWidth <= 0 || imageHeight <= 0) return;
     useEditorUiStore.getState().clampMachineHead();
   }, [imageLoaded, imageWidth, imageHeight, params.cropRect, params.resizeTo, bedWidthMm, bedHeightMm, pixelsPerMm]);
+
+  const iw = Math.max(1, imageWidth);
+  const ih = Math.max(1, imageHeight);
+
+  const imageClipPath = useMemo(() => {
+    if (!imageLoaded || iw <= 0 || ih <= 0) return undefined;
+    if (editorTool === 'crop') {
+      const d = cropDraft;
+      const full = d.x === 0 && d.y === 0 && d.width === iw && d.height === ih;
+      if (full) return undefined;
+      return imageClipPathFromCrop(d, iw, ih);
+    }
+    return imageClipPathFromCrop(params.cropRect, iw, ih);
+  }, [imageLoaded, editorTool, cropDraft, params.cropRect, iw, ih]);
 
   const cropAspectWOverH =
     cropAspectLock === '1:1' ? 1 : cropAspectLock === 'bed' ? bedWidthMm / Math.max(1e-9, bedHeightMm) : null;
@@ -249,7 +264,7 @@ export function EditorBedWorkspace() {
           bedHeightMm={bedHeightMm}
           cropAspectWOverH={cropAspectWOverH}
           cropInteractive={editorTool === 'crop'}
-          showCropOverlay
+          showCropOverlay={editorTool === 'crop'}
           controlledCrop={controlledCrop}
           stackAfterBase={stackAfterBase}
           imgStyle={{
@@ -262,6 +277,7 @@ export function EditorBedWorkspace() {
           panTool={editorTool === 'pan'}
           onPanPixelDelta={onPanPixelDelta}
           onBedStackLayout={onBedStackLayout}
+          imageClipPath={imageClipPath}
         />
       </section>
       <WorkspaceJogOverlay />

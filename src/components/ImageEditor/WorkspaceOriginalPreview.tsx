@@ -24,6 +24,7 @@ type Props = {
   panTool?: boolean;
   onPanPixelDelta?: (dx: number, dy: number) => void;
   onBedStackLayout?: (info: BedStackLayout) => void;
+  imageClipPath?: string;
 };
 
 /** Raster inside machine bed frame + optional crop UI. */
@@ -47,6 +48,7 @@ export function WorkspaceOriginalPreview(props: Props) {
     panTool,
     onPanPixelDelta,
     onBedStackLayout,
+    imageClipPath,
   } = props;
   const imgRef = useRef<HTMLImageElement>(null);
 
@@ -66,6 +68,7 @@ export function WorkspaceOriginalPreview(props: Props) {
       panEnabled={!!panTool}
       onPanPixelDelta={onPanPixelDelta}
       onBedStackLayout={onBedStackLayout}
+      imageClipPath={imageClipPath}
     >
       {showCropOverlay && imageWidth > 0 && imageHeight > 0 && (
         <InteractiveCropOverlay

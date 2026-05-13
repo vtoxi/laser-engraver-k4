@@ -260,7 +260,7 @@ export function InteractiveCropOverlay(props: Props) {
 
   const shadeBase: CSSProperties = {
     position: 'absolute',
-    background: 'rgba(0,0,0,0.5)',
+    background: 'rgba(0,0,0,0.28)',
     pointerEvents: 'none',
     zIndex: 0,
   };
@@ -323,27 +323,63 @@ export function InteractiveCropOverlay(props: Props) {
   };
 
   const edgeLocked = aspectWOverH != null && Number.isFinite(aspectWOverH) && aspectWOverH > 0;
-  const hz = 22;
-  const handleStyle = (cursor: string, extra?: CSSProperties, isEdge = false): CSSProperties => {
-    const pe = !interactive ? 'none' : isEdge && edgeLocked ? 'none' : 'auto';
-    const op = isEdge && edgeLocked ? 0.35 : 1;
-    return {
-      position: 'absolute',
-      width: hz,
-      height: hz,
-      marginLeft: -hz / 2,
-      marginTop: -hz / 2,
-      background: 'rgba(46, 204, 113, 0.95)',
-      border: '1px solid rgba(0,0,0,0.45)',
-      borderRadius: 2,
-      cursor,
-      pointerEvents: pe,
-      opacity: op,
-      boxSizing: 'border-box',
-      zIndex: 2,
-      ...extra,
-    };
-  };
+  const hit = 36;
+  const vis = 11;
+  const edgeBars = interactive && !edgeLocked;
+
+  const cornerHandle = (cursor: string, left: string | 0, top: string | 0, mode: DragMode) => (
+    <div
+      style={{
+        position: 'absolute',
+        left,
+        top,
+        width: hit,
+        height: hit,
+        marginLeft: -hit / 2,
+        marginTop: -hit / 2,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        cursor,
+        pointerEvents: interactive ? 'auto' : 'none',
+        zIndex: 2,
+        touchAction: interactive ? 'none' : undefined,
+      }}
+      onPointerDown={(e) => {
+        e.stopPropagation();
+        beginDrag(mode, e);
+      }}
+    >
+      <div
+        style={{
+          width: vis,
+          height: vis,
+          background: 'rgba(46, 204, 113, 0.95)',
+          border: '1px solid rgba(0,0,0,0.5)',
+          borderRadius: 2,
+          pointerEvents: 'none',
+          boxShadow: '0 0 0 1px rgba(255,255,255,0.12)',
+        }}
+      />
+    </div>
+  );
+
+  const edgeHandle = (cursor: string, mode: DragMode, style: CSSProperties) => (
+    <div
+      style={{
+        position: 'absolute',
+        zIndex: 2,
+        cursor,
+        pointerEvents: edgeBars ? 'auto' : 'none',
+        touchAction: interactive ? 'none' : undefined,
+        ...style,
+      }}
+      onPointerDown={(e) => {
+        e.stopPropagation();
+        beginDrag(mode, e);
+      }}
+    />
+  );
 
   return (
     <div
@@ -394,9 +430,9 @@ export function InteractiveCropOverlay(props: Props) {
           width: `${wPct}%`,
           height: `${hPct}%`,
           boxSizing: 'border-box',
-          border: '2px solid rgba(46, 204, 113, 0.95)',
-          borderRadius: 4,
-          boxShadow: '0 0 0 1px rgba(0,0,0,0.35) inset',
+          border: '1px solid rgba(46, 204, 113, 0.9)',
+          borderRadius: 3,
+          boxShadow: '0 0 0 1px rgba(0,0,0,0.25) inset',
           pointerEvents: interactive ? 'auto' : 'none',
           cursor: interactive ? 'move' : 'default',
           zIndex: 1,
@@ -404,62 +440,38 @@ export function InteractiveCropOverlay(props: Props) {
         }}
         onPointerDown={(e) => beginDrag('move', e)}
       >
-        <div
-          style={handleStyle('nw-resize', { left: 0, top: 0 })}
-          onPointerDown={(e) => {
-            e.stopPropagation();
-            beginDrag('nw', e);
-          }}
-        />
-        <div
-          style={handleStyle('n-resize', { left: '50%', top: 0 }, true)}
-          onPointerDown={(e) => {
-            e.stopPropagation();
-            beginDrag('n', e);
-          }}
-        />
-        <div
-          style={handleStyle('ne-resize', { left: '100%', top: 0 })}
-          onPointerDown={(e) => {
-            e.stopPropagation();
-            beginDrag('ne', e);
-          }}
-        />
-        <div
-          style={handleStyle('e-resize', { left: '100%', top: '50%' }, true)}
-          onPointerDown={(e) => {
-            e.stopPropagation();
-            beginDrag('e', e);
-          }}
-        />
-        <div
-          style={handleStyle('se-resize', { left: '100%', top: '100%' })}
-          onPointerDown={(e) => {
-            e.stopPropagation();
-            beginDrag('se', e);
-          }}
-        />
-        <div
-          style={handleStyle('s-resize', { left: '50%', top: '100%' }, true)}
-          onPointerDown={(e) => {
-            e.stopPropagation();
-            beginDrag('s', e);
-          }}
-        />
-        <div
-          style={handleStyle('sw-resize', { left: 0, top: '100%' })}
-          onPointerDown={(e) => {
-            e.stopPropagation();
-            beginDrag('sw', e);
-          }}
-        />
-        <div
-          style={handleStyle('w-resize', { left: 0, top: '50%' }, true)}
-          onPointerDown={(e) => {
-            e.stopPropagation();
-            beginDrag('w', e);
-          }}
-        />
+        {cornerHandle('nw-resize', 0, 0, 'nw')}
+        {edgeHandle('n-resize', 'n', {
+          left: '50%',
+          top: 0,
+          width: 'min(168px, 52%)',
+          height: 32,
+          transform: 'translate(-50%, -50%)',
+        })}
+        {cornerHandle('ne-resize', '100%', 0, 'ne')}
+        {edgeHandle('e-resize', 'e', {
+          right: 0,
+          top: '50%',
+          width: 32,
+          height: 'min(160px, 55%)',
+          transform: 'translate(50%, -50%)',
+        })}
+        {cornerHandle('se-resize', '100%', '100%', 'se')}
+        {edgeHandle('s-resize', 's', {
+          left: '50%',
+          bottom: 0,
+          width: 'min(168px, 52%)',
+          height: 32,
+          transform: 'translate(-50%, 50%)',
+        })}
+        {cornerHandle('sw-resize', 0, '100%', 'sw')}
+        {edgeHandle('w-resize', 'w', {
+          left: 0,
+          top: '50%',
+          width: 32,
+          height: 'min(160px, 55%)',
+          transform: 'translate(-50%, -50%)',
+        })}
       </div>
       <div
         style={{

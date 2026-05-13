@@ -25,6 +25,8 @@ type Props = {
   onPanPixelDelta?: (dx: number, dy: number) => void;
   /** Bed inner vs stack size for mapping head position to pixels. */
   onBedStackLayout?: (info: BedStackLayout) => void;
+  /** Clips image + stack children to this crop (CSS clip-path), e.g. committed crop. */
+  imageClipPath?: string;
 };
 
 /**
@@ -47,6 +49,7 @@ export function BedFramedImage(props: Props) {
     panEnabled = false,
     onPanPixelDelta,
     onBedStackLayout,
+    imageClipPath,
   } = props;
   const bedInnerRef = useRef<HTMLDivElement>(null);
   const stackRef = useRef<HTMLDivElement>(null);
@@ -94,6 +97,45 @@ export function BedFramedImage(props: Props) {
     };
   }, []);
 
+  const startPan = useCallback(
+    (e: React.PointerEvent) => {
+      if (!panEnabled || !onPanPixelDelta || e.button !== 0) return;
+      e.preventDefault();
+      const prevHandlers = panWindowHandlersRef.current;
+      if (prevHandlers) {
+        window.removeEventListener('pointermove', prevHandlers.move);
+        window.removeEventListener('pointerup', prevHandlers.up);
+        window.removeEventListener('pointercancel', prevHandlers.up);
+      }
+      lastPanRef.current = { x: e.clientX, y: e.clientY };
+      setPanning(true);
+      const move = (ev: PointerEvent) => {
+        if (!onPanPixelDelta || !lastPanRef.current) return;
+        const prev = lastPanRef.current;
+        const dx = ev.clientX - prev.x;
+        const dy = ev.clientY - prev.y;
+        lastPanRef.current = { x: ev.clientX, y: ev.clientY };
+        if (dx !== 0 || dy !== 0) onPanPixelDelta(dx, dy);
+      };
+      const up = () => {
+        const h = panWindowHandlersRef.current;
+        if (h) {
+          window.removeEventListener('pointermove', h.move);
+          window.removeEventListener('pointerup', h.up);
+          window.removeEventListener('pointercancel', h.up);
+          panWindowHandlersRef.current = null;
+        }
+        lastPanRef.current = null;
+        setPanning(false);
+      };
+      panWindowHandlersRef.current = { move, up };
+      window.addEventListener('pointermove', move, { passive: true });
+      window.addEventListener('pointerup', up);
+      window.addEventListener('pointercancel', up);
+    },
+    [panEnabled, onPanPixelDelta],
+  );
+
   const bw = Math.max(1, bedWidthMm);
   const bh = Math.max(1, bedHeightMm);
   const stepMm = 10;
@@ -127,8 +169,12 @@ export function BedFramedImage(props: Props) {
           alignItems: 'center',
           justifyContent: 'center',
           overflow: 'hidden',
+          touchAction: panEnabled ? 'none' : undefined,
+          cursor: panEnabled ? (panning ? 'grabbing' : 'grab') : undefined,
+          userSelect: panEnabled ? 'none' : undefined,
           ...gridBg,
         }}
+        onPointerDown={startPan}
       >
         <div
           ref={stackRef}
@@ -141,65 +187,39 @@ export function BedFramedImage(props: Props) {
             zIndex: 1,
             transform: `translate(${translateXPx}px, ${translateYPx}px)`,
             touchAction: panEnabled ? 'none' : undefined,
-            cursor: panEnabled ? (panning ? 'grabbing' : 'grab') : undefined,
-            userSelect: panEnabled ? 'none' : undefined,
-          }}
-          onPointerDown={(e) => {
-            if (!panEnabled || !onPanPixelDelta) return;
-            if (e.button !== 0) return;
-            e.preventDefault();
-            const prevHandlers = panWindowHandlersRef.current;
-            if (prevHandlers) {
-              window.removeEventListener('pointermove', prevHandlers.move);
-              window.removeEventListener('pointerup', prevHandlers.up);
-              window.removeEventListener('pointercancel', prevHandlers.up);
-            }
-            lastPanRef.current = { x: e.clientX, y: e.clientY };
-            setPanning(true);
-            const move = (ev: PointerEvent) => {
-              if (!onPanPixelDelta || !lastPanRef.current) return;
-              const prev = lastPanRef.current;
-              const dx = ev.clientX - prev.x;
-              const dy = ev.clientY - prev.y;
-              lastPanRef.current = { x: ev.clientX, y: ev.clientY };
-              if (dx !== 0 || dy !== 0) onPanPixelDelta(dx, dy);
-            };
-            const up = () => {
-              const h = panWindowHandlersRef.current;
-              if (h) {
-                window.removeEventListener('pointermove', h.move);
-                window.removeEventListener('pointerup', h.up);
-                window.removeEventListener('pointercancel', h.up);
-                panWindowHandlersRef.current = null;
-              }
-              lastPanRef.current = null;
-              setPanning(false);
-            };
-            panWindowHandlersRef.current = { move, up };
-            window.addEventListener('pointermove', move);
-            window.addEventListener('pointerup', up);
-            window.addEventListener('pointercancel', up);
           }}
         >
-          <img
-            ref={imgRef as React.Ref<HTMLImageElement>}
-            src={src}
-            alt={alt}
-            draggable={false}
-            onDragStart={(ev) => ev.preventDefault()}
-            className="lf-bed-stack__img"
+          <div
             style={{
-              display: 'block',
-              maxWidth: '100%',
-              maxHeight: '100%',
-              width: 'auto',
-              height: 'auto',
+              position: 'relative',
               borderRadius: 6,
-              ...imgStyle,
+              overflow: imageClipPath ? 'hidden' : undefined,
+              clipPath: imageClipPath,
+              WebkitClipPath: imageClipPath,
+              touchAction: panEnabled ? 'none' : undefined,
+              isolation: 'isolate',
             }}
-          />
-          {stackAfterBase}
-          {children}
+          >
+            <img
+              ref={imgRef as React.Ref<HTMLImageElement>}
+              src={src}
+              alt={alt}
+              draggable={false}
+              onDragStart={(ev) => ev.preventDefault()}
+              className="lf-bed-stack__img"
+              style={{
+                display: 'block',
+                maxWidth: '100%',
+                maxHeight: '100%',
+                width: 'auto',
+                height: 'auto',
+                borderRadius: 6,
+                ...imgStyle,
+              }}
+            />
+            {stackAfterBase}
+            {children}
+          </div>
         </div>
         {overBed != null ? (
           <div
