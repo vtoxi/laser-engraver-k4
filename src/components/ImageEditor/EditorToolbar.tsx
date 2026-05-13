@@ -50,6 +50,7 @@ function Btn(props: {
     <button
       type="button"
       title={props.title}
+      aria-label={props.title}
       disabled={props.disabled}
       onClick={props.onClick}
       style={props.active ? tbBtnOn : tbBtn}
@@ -99,6 +100,7 @@ export function EditorToolbar() {
     setTextDraft,
     addTextAnnotation,
     clearAnnotations,
+    resetMachineHead,
   } = useEditorUiStore();
 
   const iw = Math.max(1, imageWidth);
@@ -130,6 +132,7 @@ export function EditorToolbar() {
     updateParam('rotateDeg', 0);
     updateParam('invert', false);
     clearAnnotations();
+    resetMachineHead();
     syncCropDraftWithParams();
     runPreview();
   };
@@ -144,6 +147,7 @@ export function EditorToolbar() {
     useImageStore.setState({ params: nextParams });
     void useImageStore.getState().generatePreview(nextParams);
     syncCropDraftWithParams();
+    useEditorUiStore.getState().clampMachineHead();
   };
 
   const cancelCrop = () => {
@@ -168,6 +172,12 @@ export function EditorToolbar() {
   };
 
   const aspectLabel = cropAspectLock === 'free' ? '∿' : cropAspectLock === '1:1' ? '1∶1' : '⊡';
+  const aspectTitle =
+    cropAspectLock === 'free'
+      ? 'Crop aspect: free — click to lock 1∶1 (corner drags keep ratio)'
+      : cropAspectLock === '1:1'
+        ? 'Crop aspect: 1∶1 — click to match machine bed ratio'
+        : 'Crop aspect: match bed — click for free aspect';
 
   const showCropActions = cropDirty;
   const showTextActions = textDraft !== null;
@@ -186,45 +196,64 @@ export function EditorToolbar() {
         marginBottom: 12,
       }}
     >
-      <Btn title="Undo" onClick={() => void useEditorHistoryStore.getState().undo()} disabled={pastLen === 0}>
+      <Btn
+        title="Undo — revert last editor change (crop, transform, text)"
+        onClick={() => void useEditorHistoryStore.getState().undo()}
+        disabled={pastLen === 0}
+      >
         ↶
       </Btn>
-      <Btn title="Redo" onClick={() => void useEditorHistoryStore.getState().redo()} disabled={futureLen === 0}>
+      <Btn
+        title="Redo — reapply undone change"
+        onClick={() => void useEditorHistoryStore.getState().redo()}
+        disabled={futureLen === 0}
+      >
         ↷
       </Btn>
 
       <span style={{ width: 1, height: 28, background: 'var(--lf-border)', margin: '0 4px' }} />
 
-      <Btn title="Flip horizontal" onClick={flipH}>
+      <Btn title="Flip horizontal — mirror image left / right" onClick={flipH}>
         <span style={{ transform: 'scaleX(-1)', display: 'inline-block' }}>⇄</span>
       </Btn>
-      <Btn title="Flip vertical" onClick={flipV}>
+      <Btn title="Flip vertical — mirror image top / bottom" onClick={flipV}>
         <span style={{ transform: 'scaleY(-1)', display: 'inline-block' }}>⇅</span>
       </Btn>
-      <Btn title="Rotate 90°" onClick={rotate}>
+      <Btn title="Rotate 90° clockwise" onClick={rotate}>
         ↻
       </Btn>
-      <Btn title="Invert (negative)" onClick={invert}>
+      <Btn title="Invert — negative / photographic inverse" onClick={invert}>
         <span style={{ fontSize: 15 }}>☯</span>
       </Btn>
 
       <span style={{ width: 1, height: 28, background: 'var(--lf-border)', margin: '0 4px' }} />
 
-      <Btn title="Crop — drag frame; Apply or Cancel when done" active={editorTool === 'crop'} onClick={() => setEditorTool('crop')}>
+      <Btn
+        title="Crop tool — drag frame and handles on the bed; use Apply crop / Cancel in the bar below when done"
+        active={editorTool === 'crop'}
+        onClick={() => setEditorTool('crop')}
+      >
         ▢
       </Btn>
-      <Btn
-        title="Crop aspect: free → 1∶1 → match bed (corners only)"
-        onClick={cycleAspect}
-        active={cropAspectLock !== 'free'}
-      >
+      <Btn title={aspectTitle} onClick={cycleAspect} active={cropAspectLock !== 'free'}>
         {aspectLabel}
       </Btn>
-      <Btn title="Select (no crop drag)" active={editorTool === 'select'} onClick={() => setEditorTool('select')}>
+      <Btn
+        title="Select — default; no crop drag or bed pan"
+        active={editorTool === 'select'}
+        onClick={() => setEditorTool('select')}
+      >
         ◉
       </Btn>
       <Btn
-        title="Add text on bed"
+        title="Pan — drag the image on the bed to set job origin; machine jogs when connected"
+        active={editorTool === 'pan'}
+        onClick={() => setEditorTool('pan')}
+      >
+        ✥
+      </Btn>
+      <Btn
+        title="Text — add a label on the bed (type below, then Apply text)"
         active={editorTool === 'text'}
         onClick={() => {
           setEditorTool('text');
@@ -233,13 +262,17 @@ export function EditorToolbar() {
       >
         <span style={{ fontWeight: 700, color: 'var(--lf-cyan)' }}>A</span>
       </Btn>
-      <Btn title="Reset crop, flips, rotation, invert, and text labels" onClick={() => void resetImageAdjust()}>
+      <Btn
+        title="Reset — clear crop, flips, rotation, invert, text labels, and bed head position"
+        onClick={() => void resetImageAdjust()}
+      >
         🗑
       </Btn>
 
       <span style={{ width: 1, height: 28, background: 'var(--lf-border)', margin: '0 4px' }} />
 
       <label
+        title="Show or hide the processed burn preview on top of the source image"
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -249,10 +282,17 @@ export function EditorToolbar() {
           cursor: 'pointer',
         }}
       >
-        <input type="checkbox" checked={burnOverlayVisible} onChange={(e) => setBurnOverlayVisible(e.target.checked)} />
+        <input
+          type="checkbox"
+          title="Toggle burn overlay"
+          aria-label="Toggle burn overlay on the bed preview"
+          checked={burnOverlayVisible}
+          onChange={(e) => setBurnOverlayVisible(e.target.checked)}
+        />
         Burn
       </label>
       <label
+        title="Blend between source image and burn preview (0% = source only, 100% = full burn opacity)"
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -266,6 +306,8 @@ export function EditorToolbar() {
         <span style={{ whiteSpace: 'nowrap' }}>Mix</span>
         <input
           type="range"
+          title={`Burn mix: ${Math.round(burnOverlayOpacity * 100)}%`}
+          aria-label={`Burn overlay mix, ${Math.round(burnOverlayOpacity * 100)} percent`}
           min={0}
           max={100}
           value={Math.round(burnOverlayOpacity * 100)}
@@ -275,6 +317,7 @@ export function EditorToolbar() {
         />
       </label>
       <label
+        title="Animate a horizontal scan line over the burn preview (visual only)"
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -287,6 +330,8 @@ export function EditorToolbar() {
       >
         <input
           type="checkbox"
+          title="Toggle scanline animation on burn preview"
+          aria-label="Toggle scanline animation on burn preview"
           checked={simulateScanlines}
           onChange={(e) => setSimulateScanlines(e.target.checked)}
         />
@@ -309,14 +354,30 @@ export function EditorToolbar() {
               <input
                 className="lf-input"
                 placeholder="Label text"
+                title="Text shown on the machine bed preview"
+                aria-label="Text label for bed annotation"
                 value={textDraft ?? ''}
                 onChange={(e) => setTextDraft(e.target.value)}
                 style={{ flex: 1, minWidth: 160, maxWidth: 360 }}
               />
-              <button type="button" className="lf-btn lf-btn--primary" style={tbBtnSm} onClick={applyText}>
+              <button
+                type="button"
+                className="lf-btn lf-btn--primary"
+                style={tbBtnSm}
+                title="Place this text on the bed (saved in history)"
+                aria-label="Apply text to bed"
+                onClick={applyText}
+              >
                 Apply text
               </button>
-              <button type="button" className="lf-btn lf-btn--ghost" style={tbBtnSm} onClick={cancelText}>
+              <button
+                type="button"
+                className="lf-btn lf-btn--ghost"
+                style={tbBtnSm}
+                title="Discard text entry without adding a label"
+                aria-label="Cancel text entry"
+                onClick={cancelText}
+              >
                 Cancel
               </button>
             </div>
@@ -326,10 +387,24 @@ export function EditorToolbar() {
               <span className="lf-hint" style={{ flex: 1, minWidth: 140 }}>
                 Crop changed — apply to job or cancel.
               </span>
-              <button type="button" className="lf-btn lf-btn--primary" style={tbBtnSm} onClick={() => void applyCrop()}>
+              <button
+                type="button"
+                className="lf-btn lf-btn--primary"
+                style={tbBtnSm}
+                title="Commit crop rectangle to the job and regenerate preview"
+                aria-label="Apply crop to job"
+                onClick={() => void applyCrop()}
+              >
                 Apply crop
               </button>
-              <button type="button" className="lf-btn lf-btn--ghost" style={tbBtnSm} onClick={cancelCrop}>
+              <button
+                type="button"
+                className="lf-btn lf-btn--ghost"
+                style={tbBtnSm}
+                title="Revert crop draft to last applied crop"
+                aria-label="Cancel crop changes"
+                onClick={cancelCrop}
+              >
                 Cancel
               </button>
             </div>

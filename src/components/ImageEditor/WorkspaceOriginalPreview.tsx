@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import type { CropRectPayload } from '../../store/imageStore';
+import type { BedStackLayout } from './BedFramedImage';
 import { BedFramedImage } from './BedFramedImage';
 import { InteractiveCropOverlay } from './InteractiveCropOverlay';
 
@@ -18,6 +19,11 @@ type Props = {
   overBed?: ReactNode;
   stackAfterBase?: ReactNode;
   controlledCrop?: { rect: CropRectPayload; onChange: (next: CropRectPayload | null) => void } | undefined;
+  translateXPx?: number;
+  translateYPx?: number;
+  panTool?: boolean;
+  onPanPixelDelta?: (dx: number, dy: number) => void;
+  onBedStackLayout?: (info: BedStackLayout) => void;
 };
 
 /** Raster inside machine bed frame + optional crop UI. */
@@ -36,6 +42,11 @@ export function WorkspaceOriginalPreview(props: Props) {
     overBed,
     stackAfterBase,
     controlledCrop,
+    translateXPx,
+    translateYPx,
+    panTool,
+    onPanPixelDelta,
+    onBedStackLayout,
   } = props;
   const imgRef = useRef<HTMLImageElement>(null);
 
@@ -50,6 +61,11 @@ export function WorkspaceOriginalPreview(props: Props) {
       imgStyle={imgStyle}
       overBed={overBed}
       stackAfterBase={stackAfterBase}
+      translateXPx={translateXPx}
+      translateYPx={translateYPx}
+      panEnabled={!!panTool}
+      onPanPixelDelta={onPanPixelDelta}
+      onBedStackLayout={onBedStackLayout}
     >
       {showCropOverlay && imageWidth > 0 && imageHeight > 0 && (
         <InteractiveCropOverlay

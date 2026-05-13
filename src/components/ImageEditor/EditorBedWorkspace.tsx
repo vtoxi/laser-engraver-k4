@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { WorkspaceJogOverlay } from '../MachineControl/WorkspaceJogOverlay';
 import { useEditorUiStore } from '../../store/editorUiStore';
 import { useImageStore } from '../../store/imageStore';
 import type { CropRectPayload } from '../../store/imageStore';
 import { computeWorkAreaPixels, useSettingsStore } from '../../store/settingsStore';
+import { jobMachineRegion } from '../../lib/jobMachineRegion';
+import type { BedStackLayout } from './BedFramedImage';
 import { EditorToolbar } from './EditorToolbar';
 import { WorkspaceOriginalPreview } from './WorkspaceOriginalPreview';
 
@@ -36,8 +38,16 @@ function BurnScanlines() {
 }
 
 export function EditorBedWorkspace() {
-  const { originalPreview, processedPreview, imageWidth, imageHeight, isGeneratingPreview, previewError, imageLoaded } =
-    useImageStore();
+  const {
+    originalPreview,
+    processedPreview,
+    imageWidth,
+    imageHeight,
+    isGeneratingPreview,
+    previewError,
+    imageLoaded,
+    params,
+  } = useImageStore();
   const { bedWidthMm, bedHeightMm, pixelsPerMm } = useSettingsStore();
   const workPx = computeWorkAreaPixels(bedWidthMm, bedHeightMm, pixelsPerMm);
   const {
@@ -48,10 +58,86 @@ export function EditorBedWorkspace() {
     burnOverlayVisible,
     burnOverlayOpacity,
     cropDraft,
+    machineHeadX,
+    machineHeadY,
   } = useEditorUiStore();
+
+  const [bedLayout, setBedLayout] = useState<BedStackLayout>({ bedW: 0, bedH: 0, stackW: 0, stackH: 0 });
+  const bedLayoutRef = useRef(bedLayout);
+  bedLayoutRef.current = bedLayout;
+
+  const onBedStackLayout = useCallback((info: BedStackLayout) => {
+    setBedLayout(info);
+  }, []);
+
+  useEffect(() => {
+    if (!originalPreview) return;
+    useEditorUiStore.getState().resetMachineHead();
+  }, [originalPreview]);
+
+  useEffect(() => {
+    if (!imageLoaded || imageWidth <= 0 || imageHeight <= 0) return;
+    useEditorUiStore.getState().clampMachineHead();
+  }, [imageLoaded, imageWidth, imageHeight, params.cropRect, params.resizeTo, bedWidthMm, bedHeightMm, pixelsPerMm]);
 
   const cropAspectWOverH =
     cropAspectLock === '1:1' ? 1 : cropAspectLock === 'bed' ? bedWidthMm / Math.max(1e-9, bedHeightMm) : null;
+
+  const { translateXPx, translateYPx } = useMemo(() => {
+    if (!imageLoaded || imageWidth <= 0 || imageHeight <= 0) {
+      return { translateXPx: 0, translateYPx: 0 };
+    }
+    const { maxW, maxH, jobW, jobH } = jobMachineRegion({
+      imageWidth,
+      imageHeight,
+      params,
+      bedWidthMm,
+      bedHeightMm,
+      pixelsPerMm,
+    });
+    const mhx = Math.max(0, maxW - jobW);
+    const mhy = Math.max(0, maxH - jobH);
+    const spanX = Math.max(0, bedLayout.bedW - bedLayout.stackW);
+    const spanY = Math.max(0, bedLayout.bedH - bedLayout.stackH);
+    const tx = mhx > 0 && spanX > 0 ? (machineHeadX / mhx) * spanX : 0;
+    const ty = mhy > 0 && spanY > 0 ? (machineHeadY / mhy) * spanY : 0;
+    return { translateXPx: tx, translateYPx: ty };
+  }, [
+    imageLoaded,
+    imageWidth,
+    imageHeight,
+    params,
+    bedWidthMm,
+    bedHeightMm,
+    pixelsPerMm,
+    bedLayout,
+    machineHeadX,
+    machineHeadY,
+  ]);
+
+  const onPanPixelDelta = useCallback((dx: number, dy: number) => {
+    const L = bedLayoutRef.current;
+    const spanX = Math.max(0, L.bedW - L.stackW);
+    const spanY = Math.max(0, L.bedH - L.stackH);
+    const st = useImageStore.getState();
+    const set = useSettingsStore.getState();
+    if (!st.imageLoaded || st.imageWidth <= 0 || st.imageHeight <= 0) return;
+    const { maxW, maxH, jobW, jobH } = jobMachineRegion({
+      imageWidth: st.imageWidth,
+      imageHeight: st.imageHeight,
+      params: st.params,
+      bedWidthMm: set.bedWidthMm,
+      bedHeightMm: set.bedHeightMm,
+      pixelsPerMm: set.pixelsPerMm,
+    });
+    const mhx = Math.max(0, maxW - jobW);
+    const mhy = Math.max(0, maxH - jobH);
+    const dhx = spanX > 0 && mhx > 0 ? (dx / spanX) * mhx : 0;
+    const dhy = spanY > 0 && mhy > 0 ? (dy / spanY) * mhy : 0;
+    if (dhx === 0 && dhy === 0) return;
+    const ui = useEditorUiStore.getState();
+    ui.setMachineHead(ui.machineHeadX + dhx, ui.machineHeadY + dhy, false);
+  }, []);
 
   useEffect(() => {
     if (!imageLoaded || imageWidth <= 0 || imageHeight <= 0) return;
@@ -146,7 +232,8 @@ export function EditorBedWorkspace() {
         <p className="lf-hint" style={{ marginTop: 4 }}>
           Source and burn preview are <strong>one view</strong>: toggle <strong>Burn</strong> and <strong>Mix</strong> to compare.
           Crop with the ▢ tool, then <strong>Apply crop</strong> or <strong>Cancel</strong>. <strong>A</strong> adds text (Apply/Cancel).
-          Undo / redo cover crop, transforms, text adds, and reset. Sidebar filters still drive the burn layer.
+          Use <strong>Pan</strong> to drag the image on the bed (head position; jogs when connected). Undo / redo cover crop, transforms, text adds, and reset.
+          Sidebar filters still drive the burn layer.
           {previewError ? (
             <span style={{ color: 'var(--lf-danger)', marginLeft: 8 }}>Preview error: {previewError}</span>
           ) : null}
@@ -168,6 +255,11 @@ export function EditorBedWorkspace() {
             imageRendering: 'pixelated',
           }}
           overBed={overBed}
+          translateXPx={translateXPx}
+          translateYPx={translateYPx}
+          panTool={editorTool === 'pan'}
+          onPanPixelDelta={onPanPixelDelta}
+          onBedStackLayout={onBedStackLayout}
         />
         {!processedPreview && (
           <p className="lf-hint" style={{ marginTop: 8 }}>

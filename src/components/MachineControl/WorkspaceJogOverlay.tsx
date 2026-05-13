@@ -1,22 +1,34 @@
-import { useState } from 'react';
-import { useSerialStore } from '../../store/serialStore';
+import { useEffect, useState } from 'react';
+import { useEditorUiStore } from '../../store/editorUiStore';
 
 const STEP = 10;
 
-/** Compact corner jog pad (axis cross); numeric X/Y + Go expand on demand. */
+/** Compact corner jog pad (axis cross); shares machine head with bed pan. */
 export function WorkspaceJogOverlay() {
-  const { connectionState, jog } = useSerialStore();
-  const [x, setX] = useState(0);
-  const [y, setY] = useState(0);
+  const machineHeadX = useEditorUiStore((s) => s.machineHeadX);
+  const machineHeadY = useEditorUiStore((s) => s.machineHeadY);
+  const setMachineHead = useEditorUiStore((s) => s.setMachineHead);
   const [expanded, setExpanded] = useState(false);
-  const disabled = connectionState !== 'connected';
+  const [draftX, setDraftX] = useState(String(machineHeadX));
+  const [draftY, setDraftY] = useState(String(machineHeadY));
+
+  useEffect(() => {
+    if (expanded) {
+      setDraftX(String(machineHeadX));
+      setDraftY(String(machineHeadY));
+    }
+  }, [expanded, machineHeadX, machineHeadY]);
 
   const go = (dx: number, dy: number) => {
-    const nx = Math.max(0, x + dx);
-    const ny = Math.max(0, y + dy);
-    setX(nx);
-    setY(ny);
-    void jog(nx, ny);
+    const nx = Math.max(0, machineHeadX + dx);
+    const ny = Math.max(0, machineHeadY + dy);
+    setMachineHead(nx, ny, false);
+  };
+
+  const applyNumericGo = () => {
+    const nx = Math.max(0, Math.floor(Number(draftX) || 0));
+    const ny = Math.max(0, Math.floor(Number(draftY) || 0));
+    setMachineHead(nx, ny, false);
   };
 
   return (
@@ -36,9 +48,12 @@ export function WorkspaceJogOverlay() {
                   className="lf-input lf-jog-dock__input"
                   type="number"
                   min={0}
-                  value={x}
-                  onChange={(e) => setX(Math.max(0, Number(e.target.value) || 0))}
-                  disabled={disabled}
+                  value={draftX}
+                  onChange={(e) => {
+                    setDraftX(e.target.value);
+                    const v = Math.max(0, Math.floor(Number(e.target.value) || 0));
+                    setMachineHead(v, machineHeadY, true);
+                  }}
                 />
               </label>
               <label className="lf-jog-dock__field">
@@ -47,18 +62,20 @@ export function WorkspaceJogOverlay() {
                   className="lf-input lf-jog-dock__input"
                   type="number"
                   min={0}
-                  value={y}
-                  onChange={(e) => setY(Math.max(0, Number(e.target.value) || 0))}
-                  disabled={disabled}
+                  value={draftY}
+                  onChange={(e) => {
+                    setDraftY(e.target.value);
+                    const v = Math.max(0, Math.floor(Number(e.target.value) || 0));
+                    setMachineHead(machineHeadX, v, true);
+                  }}
                 />
               </label>
             </div>
             <button
               type="button"
               className="lf-btn lf-btn--ghost lf-jog-dock__go"
-              disabled={disabled}
               title="Move head to X / Y"
-              onClick={() => void jog(x, y)}
+              onClick={() => void applyNumericGo()}
             >
               Go
             </button>
@@ -70,7 +87,6 @@ export function WorkspaceJogOverlay() {
           <button
             type="button"
             className="lf-jog-dock__arrow lf-jog-dock__arrow--y"
-            disabled={disabled}
             title={`Y −${STEP} (up)`}
             onClick={() => go(0, -STEP)}
           >
@@ -83,7 +99,6 @@ export function WorkspaceJogOverlay() {
           <button
             type="button"
             className="lf-jog-dock__arrow lf-jog-dock__arrow--x"
-            disabled={disabled}
             title={`X −${STEP} (left)`}
             onClick={() => go(-STEP, 0)}
           >
@@ -95,7 +110,6 @@ export function WorkspaceJogOverlay() {
           <button
             type="button"
             className="lf-jog-dock__hub"
-            disabled={disabled}
             title={expanded ? 'Hide position entry' : 'Position & Go'}
             aria-expanded={expanded}
             onClick={() => setExpanded((v) => !v)}
@@ -116,7 +130,6 @@ export function WorkspaceJogOverlay() {
           <button
             type="button"
             className="lf-jog-dock__arrow lf-jog-dock__arrow--x"
-            disabled={disabled}
             title={`X +${STEP} (right)`}
             onClick={() => go(STEP, 0)}
           >
@@ -129,7 +142,6 @@ export function WorkspaceJogOverlay() {
           <button
             type="button"
             className="lf-jog-dock__arrow lf-jog-dock__arrow--y"
-            disabled={disabled}
             title={`Y +${STEP} (down)`}
             onClick={() => go(0, STEP)}
           >

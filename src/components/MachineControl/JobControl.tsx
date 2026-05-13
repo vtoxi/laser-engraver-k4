@@ -2,41 +2,15 @@ import { useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { useSettingsStore } from '../../store/settingsStore';
 import { useSerialStore } from '../../store/serialStore';
-import { useImageStore, type EngraveParamsPayload } from '../../store/imageStore';
+import { useImageStore } from '../../store/imageStore';
+import { useEditorUiStore } from '../../store/editorUiStore';
 import { jobMachineRegion } from '../../lib/jobMachineRegion';
-
-/** @deprecated use jobMachineRegion from lib */
-function previewFrameArgs(
-  imageWidth: number,
-  imageHeight: number,
-  params: EngraveParamsPayload,
-  bedWidthMm: number,
-  bedHeightMm: number,
-  pixelsPerMm: number,
-): { x: number; y: number; w: number; h: number } {
-  const { jobW, jobH } = jobMachineRegion({
-    imageWidth,
-    imageHeight,
-    params,
-    bedWidthMm,
-    bedHeightMm,
-    pixelsPerMm,
-  });
-  let x = 0;
-  let y = 0;
-  if (params.cropRect) {
-    x = params.cropRect.x;
-    y = params.cropRect.y;
-  }
-  return { x: Math.max(0, Math.round(x)), y: Math.max(0, Math.round(y)), w: jobW, h: jobH };
-}
 
 export function JobControl() {
   const {
     connectionState,
     jobRunning,
     jobProgress,
-    previewFrame,
     stopPreview,
     stopJob,
     pauseJob,
@@ -44,11 +18,42 @@ export function JobControl() {
   } = useSerialStore();
   const { imageLoaded, imageWidth, imageHeight, params, startJob } = useImageStore();
   const { bedWidthMm, bedHeightMm, pixelsPerMm } = useSettingsStore();
+  const machineHeadX = useEditorUiStore((s) => s.machineHeadX);
+  const machineHeadY = useEditorUiStore((s) => s.machineHeadY);
   const [previewOn, setPreviewOn] = useState(false);
 
   useEffect(() => {
     if (connectionState !== 'connected') setPreviewOn(false);
   }, [connectionState]);
+
+  useEffect(() => {
+    if (!previewOn || connectionState !== 'connected' || !imageLoaded) return;
+    const ser = useSerialStore.getState();
+    const img = useImageStore.getState();
+    const set = useSettingsStore.getState();
+    const ui = useEditorUiStore.getState();
+    const { jobW, jobH } = jobMachineRegion({
+      imageWidth: img.imageWidth,
+      imageHeight: img.imageHeight,
+      params: img.params,
+      bedWidthMm: set.bedWidthMm,
+      bedHeightMm: set.bedHeightMm,
+      pixelsPerMm: set.pixelsPerMm,
+    });
+    void ser.previewFrame(ui.machineHeadX, ui.machineHeadY, jobW, jobH);
+  }, [
+    previewOn,
+    connectionState,
+    imageLoaded,
+    machineHeadX,
+    machineHeadY,
+    imageWidth,
+    imageHeight,
+    params,
+    bedWidthMm,
+    bedHeightMm,
+    pixelsPerMm,
+  ]);
 
   const canRun = connectionState === 'connected' && imageLoaded && !jobRunning;
   const canPreview = connectionState === 'connected' && imageLoaded;
@@ -61,15 +66,6 @@ export function JobControl() {
       return;
     }
     await setParams(params.speed, params.power, params.passes);
-    const { x, y, w, h } = previewFrameArgs(
-      imageWidth,
-      imageHeight,
-      params,
-      bedWidthMm,
-      bedHeightMm,
-      pixelsPerMm,
-    );
-    await previewFrame(x, y, w, h);
     setPreviewOn(true);
   };
 
