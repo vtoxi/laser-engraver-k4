@@ -193,7 +193,7 @@ export function EditorToolbar() {
         borderRadius: 'var(--lf-radius-sm)',
         border: '1px solid var(--lf-border)',
         background: 'rgba(14, 18, 32, 0.55)',
-        marginBottom: 12,
+        marginBottom: 0,
       }}
     >
       <Btn

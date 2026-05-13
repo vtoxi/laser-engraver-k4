@@ -6,6 +6,7 @@ import type { CropRectPayload } from '../../store/imageStore';
 import { computeWorkAreaPixels, useSettingsStore } from '../../store/settingsStore';
 import { jobMachineRegion } from '../../lib/jobMachineRegion';
 import type { BedStackLayout } from './BedFramedImage';
+import { EditorAdvancedToolbar } from './EditorAdvancedToolbar';
 import { EditorToolbar } from './EditorToolbar';
 import { WorkspaceOriginalPreview } from './WorkspaceOriginalPreview';
 
@@ -223,17 +224,19 @@ export function EditorBedWorkspace() {
 
   return (
     <div className="lf-workspace-playground">
-      <EditorToolbar />
+      <div className="lf-ps-toolbar-stack">
+        <EditorToolbar />
+        <EditorAdvancedToolbar />
+      </div>
       <section className="lf-panel lf-stack" style={{ padding: 16 }}>
         <div className="lf-hint" style={{ color: 'var(--lf-text)', fontWeight: 600 }}>
           Bed {bedWidthMm}×{bedHeightMm} mm · source {imageWidth}×{imageHeight}px · raster cap ≈ {workPx[0]}×{workPx[1]} px
           {isGeneratingPreview ? ' · rendering…' : ''}
         </div>
         <p className="lf-hint" style={{ marginTop: 4 }}>
-          Source and burn preview are <strong>one view</strong>: toggle <strong>Burn</strong> and <strong>Mix</strong> to compare.
-          Crop with the ▢ tool, then <strong>Apply crop</strong> or <strong>Cancel</strong>. <strong>A</strong> adds text (Apply/Cancel).
-          Use <strong>Pan</strong> to drag the image on the bed (head position; jogs when connected). Undo / redo cover crop, transforms, text adds, and reset.
-          Sidebar filters still drive the burn layer.
+          Layout is similar to a compact image editor: <strong>tools</strong> on the first row, <strong>Options</strong> underneath (rotation presets, invert, flips — like Photoshop’s options bar).
+          Source and burn are <strong>one view</strong> (<strong>Burn</strong> / <strong>Mix</strong>). Crop with ▢, then Apply or Cancel; <strong>Pan</strong> moves placement on the bed; <strong>A</strong> for labels.
+          The <strong>Image</strong> sidebar keeps dithering and tonal sliders only. <strong>Engrave</strong> tab holds laser parameters.
           {previewError ? (
             <span style={{ color: 'var(--lf-danger)', marginLeft: 8 }}>Preview error: {previewError}</span>
           ) : null}

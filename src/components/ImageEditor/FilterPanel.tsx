@@ -77,35 +77,9 @@ export function FilterPanel() {
         onInteractionEnd={() => throttledRegeneratePreview.flush()}
       />
 
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <ToggleBtn label="Invert" active={params.invert} onClick={() => updateImmediate('invert', !params.invert)} />
-        <ToggleBtn label="Flip H" active={params.flipH} onClick={() => updateImmediate('flipH', !params.flipH)} />
-        <ToggleBtn label="Flip V" active={params.flipV} onClick={() => updateImmediate('flipV', !params.flipV)} />
-      </div>
-
-      <div>
-        <label style={labelStyle}>Rotate</label>
-        <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-          {[0, 90, 180, 270].map((deg) => (
-            <button
-              type="button"
-              key={deg}
-              onClick={() => updateImmediate('rotateDeg', deg)}
-              style={{
-                background: params.rotateDeg === deg ? '#2980b9' : '#2a2a3e',
-                color: '#fff',
-                border: '1px solid #444',
-                borderRadius: 4,
-                padding: '5px 10px',
-                cursor: 'pointer',
-                fontSize: 12,
-              }}
-            >
-              {deg}°
-            </button>
-          ))}
-        </div>
-      </div>
+      <p className="lf-hint" style={{ margin: 0, fontSize: 12, lineHeight: 1.45, color: 'var(--lf-muted)' }}>
+        Invert, flip, and exact rotation live in the workspace <strong>Options</strong> bar (under the tools), like Photoshop’s options strip.
+      </p>
 
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <button
@@ -160,27 +134,6 @@ function SliderRow(props: {
         style={{ width: '100%', accentColor: '#2980b9' }}
       />
     </div>
-  );
-}
-
-function ToggleBtn(props: { label: string; active: boolean; onClick: () => void }) {
-  const { label, active, onClick } = props;
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      style={{
-        background: active ? '#e67e22' : '#2a2a3e',
-        color: '#fff',
-        border: '1px solid #444',
-        borderRadius: 4,
-        padding: '5px 12px',
-        cursor: 'pointer',
-        fontSize: 12,
-      }}
-    >
-      {label}
-    </button>
   );
 }
 
