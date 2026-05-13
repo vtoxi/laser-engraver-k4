@@ -1,0 +1,38 @@
+[package]
+name = "laser-forge-k4"
+version = "0.1.0"
+description = "LaserForge K4 desktop app"
+authors = ["LaserForge"]
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "laser_forge_k4_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "laser-forge-k4"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serialport = "4"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
+image = { version = "0.25", features = ["png", "jpeg", "bmp", "gif", "webp"] }
+anyhow = "1"
+log = "0.4"
+env_logger = "0.11"
+parking_lot = "0.12"
+base64 = "0.22"
+tauri-plugin-notification = "2"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
