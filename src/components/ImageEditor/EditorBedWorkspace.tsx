@@ -133,8 +133,12 @@ export function EditorBedWorkspace() {
     });
     const mhx = Math.max(0, maxW - jobW);
     const mhy = Math.max(0, maxH - jobH);
-    const dhx = spanX > 0 && mhx > 0 ? (dx / spanX) * mhx : 0;
-    const dhy = spanY > 0 && mhy > 0 ? (dy / spanY) * mhy : 0;
+    const stackW = Math.max(1, L.stackW);
+    const stackH = Math.max(1, L.stackH);
+    const dhx =
+      mhx > 0 ? (spanX > 0 ? (dx / spanX) * mhx : (dx / stackW) * mhx) : 0;
+    const dhy =
+      mhy > 0 ? (spanY > 0 ? (dy / spanY) * mhy : (dy / stackH) * mhy) : 0;
     if (dhx === 0 && dhy === 0) return;
     const ui = useEditorUiStore.getState();
     ui.setMachineHead(ui.machineHeadX + dhx, ui.machineHeadY + dhy, false);
@@ -230,17 +234,12 @@ export function EditorBedWorkspace() {
       </div>
       <section className="lf-panel lf-stack" style={{ padding: 16 }}>
         <div className="lf-hint" style={{ color: 'var(--lf-text)', fontWeight: 600 }}>
-          Bed {bedWidthMm}×{bedHeightMm} mm · source {imageWidth}×{imageHeight}px · raster cap ≈ {workPx[0]}×{workPx[1]} px
-          {isGeneratingPreview ? ' · rendering…' : ''}
-        </div>
-        <p className="lf-hint" style={{ marginTop: 4 }}>
-          Layout is similar to a compact image editor: <strong>tools</strong> on the first row, <strong>Options</strong> underneath (rotation presets, invert, flips — like Photoshop’s options bar).
-          Source and burn are <strong>one view</strong> (<strong>Burn</strong> / <strong>Mix</strong>). Crop with ▢, then Apply or Cancel; <strong>Pan</strong> moves placement on the bed; <strong>A</strong> for labels.
-          The <strong>Image</strong> sidebar keeps dithering and tonal sliders only. <strong>Engrave</strong> tab holds laser parameters.
+          Bed {bedWidthMm}×{bedHeightMm} mm · {imageWidth}×{imageHeight}px · max {workPx[0]}×{workPx[1]} px
+          {isGeneratingPreview ? ' · …' : ''}
           {previewError ? (
-            <span style={{ color: 'var(--lf-danger)', marginLeft: 8 }}>Preview error: {previewError}</span>
+            <span style={{ color: 'var(--lf-danger)', marginLeft: 8 }}>{previewError}</span>
           ) : null}
-        </p>
+        </div>
         <WorkspaceOriginalPreview
           src={originalPreview!}
           alt="Job source"
@@ -264,11 +263,6 @@ export function EditorBedWorkspace() {
           onPanPixelDelta={onPanPixelDelta}
           onBedStackLayout={onBedStackLayout}
         />
-        {!processedPreview && (
-          <p className="lf-hint" style={{ marginTop: 8 }}>
-            Burn overlay appears after a preview is built (sidebar Image / Engrave).
-          </p>
-        )}
       </section>
       <WorkspaceJogOverlay />
     </div>

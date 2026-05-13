@@ -52,6 +52,10 @@ export function BedFramedImage(props: Props) {
   const stackRef = useRef<HTMLDivElement>(null);
   const [panning, setPanning] = useState(false);
   const lastPanRef = useRef<{ x: number; y: number } | null>(null);
+  const panWindowHandlersRef = useRef<{
+    move: (ev: PointerEvent) => void;
+    up: (ev: PointerEvent) => void;
+  } | null>(null);
 
   const publishLayout = useCallback(() => {
     const bedEl = bedInnerRef.current;
@@ -76,6 +80,19 @@ export function BedFramedImage(props: Props) {
     ro.observe(stackEl);
     return () => ro.disconnect();
   }, [onBedStackLayout, publishLayout, src]);
+
+  useEffect(() => {
+    return () => {
+      const h = panWindowHandlersRef.current;
+      if (h) {
+        window.removeEventListener('pointermove', h.move);
+        window.removeEventListener('pointerup', h.up);
+        window.removeEventListener('pointercancel', h.up);
+        panWindowHandlersRef.current = null;
+      }
+      lastPanRef.current = null;
+    };
+  }, []);
 
   const bw = Math.max(1, bedWidthMm);
   const bh = Math.max(1, bedHeightMm);
@@ -125,41 +142,52 @@ export function BedFramedImage(props: Props) {
             transform: `translate(${translateXPx}px, ${translateYPx}px)`,
             touchAction: panEnabled ? 'none' : undefined,
             cursor: panEnabled ? (panning ? 'grabbing' : 'grab') : undefined,
+            userSelect: panEnabled ? 'none' : undefined,
           }}
           onPointerDown={(e) => {
             if (!panEnabled || !onPanPixelDelta) return;
             if (e.button !== 0) return;
-            e.currentTarget.setPointerCapture(e.pointerId);
+            e.preventDefault();
+            const prevHandlers = panWindowHandlersRef.current;
+            if (prevHandlers) {
+              window.removeEventListener('pointermove', prevHandlers.move);
+              window.removeEventListener('pointerup', prevHandlers.up);
+              window.removeEventListener('pointercancel', prevHandlers.up);
+            }
             lastPanRef.current = { x: e.clientX, y: e.clientY };
             setPanning(true);
-          }}
-          onPointerMove={(e) => {
-            if (!panEnabled || !onPanPixelDelta || !lastPanRef.current) return;
-            const prev = lastPanRef.current;
-            const dx = e.clientX - prev.x;
-            const dy = e.clientY - prev.y;
-            lastPanRef.current = { x: e.clientX, y: e.clientY };
-            if (dx !== 0 || dy !== 0) onPanPixelDelta(dx, dy);
-          }}
-          onPointerUp={(e) => {
-            if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-              e.currentTarget.releasePointerCapture(e.pointerId);
-            }
-            lastPanRef.current = null;
-            setPanning(false);
-          }}
-          onPointerCancel={(e) => {
-            if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-              e.currentTarget.releasePointerCapture(e.pointerId);
-            }
-            lastPanRef.current = null;
-            setPanning(false);
+            const move = (ev: PointerEvent) => {
+              if (!onPanPixelDelta || !lastPanRef.current) return;
+              const prev = lastPanRef.current;
+              const dx = ev.clientX - prev.x;
+              const dy = ev.clientY - prev.y;
+              lastPanRef.current = { x: ev.clientX, y: ev.clientY };
+              if (dx !== 0 || dy !== 0) onPanPixelDelta(dx, dy);
+            };
+            const up = () => {
+              const h = panWindowHandlersRef.current;
+              if (h) {
+                window.removeEventListener('pointermove', h.move);
+                window.removeEventListener('pointerup', h.up);
+                window.removeEventListener('pointercancel', h.up);
+                panWindowHandlersRef.current = null;
+              }
+              lastPanRef.current = null;
+              setPanning(false);
+            };
+            panWindowHandlersRef.current = { move, up };
+            window.addEventListener('pointermove', move);
+            window.addEventListener('pointerup', up);
+            window.addEventListener('pointercancel', up);
           }}
         >
           <img
             ref={imgRef as React.Ref<HTMLImageElement>}
             src={src}
             alt={alt}
+            draggable={false}
+            onDragStart={(ev) => ev.preventDefault()}
+            className="lf-bed-stack__img"
             style={{
               display: 'block',
               maxWidth: '100%',

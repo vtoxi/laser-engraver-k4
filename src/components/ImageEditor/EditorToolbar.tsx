@@ -384,9 +384,6 @@ export function EditorToolbar() {
           )}
           {showCropActions && (
             <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-              <span className="lf-hint" style={{ flex: 1, minWidth: 140 }}>
-                Crop changed — apply to job or cancel.
-              </span>
               <button
                 type="button"
                 className="lf-btn lf-btn--primary"

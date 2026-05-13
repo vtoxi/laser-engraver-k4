@@ -35,11 +35,7 @@ export function CropPanel() {
   }, [imagePath, imageLoaded, imageWidth, imageHeight, params.cropRect]);
 
   if (!imageLoaded) {
-    return (
-      <div style={{ padding: '0 16px 16px', color: '#666', fontSize: 12 }}>
-        Open an image to crop (coordinates are in original image pixels).
-      </div>
-    );
+    return <div style={{ padding: '0 16px 16px', color: '#666', fontSize: 12 }}>No image.</div>;
   }
 
   const applyCrop = () => {

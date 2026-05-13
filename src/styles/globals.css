@@ -405,6 +405,11 @@ select.lf-input:focus {
   width: 100%;
 }
 
+.lf-bed-stack__img {
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
 .lf-workspace-playground {
   position: relative;
 }

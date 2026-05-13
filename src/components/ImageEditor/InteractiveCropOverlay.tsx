@@ -81,18 +81,34 @@ function applyDragCornerAspect(
   }
 }
 
+/**
+ * Map pointer to logical image pixels (`logicalIw` × `logicalIh`, same as job / store).
+ * Handles letterboxed `object-fit: contain` and previews smaller than full size (e.g. Tauri bed thumbnail).
+ */
 function clientToImg(
   clientX: number,
   clientY: number,
   img: HTMLImageElement,
-  iw: number,
-  ih: number,
+  logicalIw: number,
+  logicalIh: number,
 ): { ix: number; iy: number } {
   const r = img.getBoundingClientRect();
   if (r.width <= 0 || r.height <= 0) return { ix: 0, iy: 0 };
-  const u = (clientX - r.left) / r.width;
-  const v = (clientY - r.top) / r.height;
-  return { ix: u * iw, iy: v * ih };
+  const nw = img.naturalWidth;
+  const nh = img.naturalHeight;
+  if (nw <= 0 || nh <= 0) {
+    const u = (clientX - r.left) / r.width;
+    const v = (clientY - r.top) / r.height;
+    return { ix: u * logicalIw, iy: v * logicalIh };
+  }
+  const scale = Math.min(r.width / nw, r.height / nh);
+  const dw = nw * scale;
+  const dh = nh * scale;
+  const ox = r.left + (r.width - dw) / 2;
+  const oy = r.top + (r.height - dh) / 2;
+  const u = Math.max(0, Math.min(1, (clientX - ox) / dw));
+  const v = Math.max(0, Math.min(1, (clientY - oy) / dh));
+  return { ix: u * logicalIw, iy: v * logicalIh };
 }
 
 function rectFromStore(cropRect: { x: number; y: number; width: number; height: number } | null, iw: number, ih: number): Rect {
@@ -256,6 +272,16 @@ export function InteractiveCropOverlay(props: Props) {
     const img = imgRef.current;
     if (!img || iw <= 0 || ih <= 0) return;
 
+    const capEl = e.currentTarget;
+    const pointerId = e.pointerId;
+    if (capEl instanceof HTMLElement) {
+      try {
+        capEl.setPointerCapture(pointerId);
+      } catch {
+        /* ignore */
+      }
+    }
+
     const base = draftRef.current ?? (cc ? rectFromPayload(cc.rect) : rectFromStore(useImageStore.getState().params.cropRect, iw, ih));
     const p0 = clientToImg(e.clientX, e.clientY, img, iw, ih);
     const R0 = { ...base };
@@ -274,6 +300,13 @@ export function InteractiveCropOverlay(props: Props) {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onUp);
+      if (capEl instanceof HTMLElement) {
+        try {
+          if (capEl.hasPointerCapture(pointerId)) capEl.releasePointerCapture(pointerId);
+        } catch {
+          /* ignore */
+        }
+      }
       const finalR = draftRef.current ?? session.R0;
       draftRef.current = null;
       setDraft(null);
@@ -290,7 +323,7 @@ export function InteractiveCropOverlay(props: Props) {
   };
 
   const edgeLocked = aspectWOverH != null && Number.isFinite(aspectWOverH) && aspectWOverH > 0;
-  const hz = 14;
+  const hz = 22;
   const handleStyle = (cursor: string, extra?: CSSProperties, isEdge = false): CSSProperties => {
     const pe = !interactive ? 'none' : isEdge && edgeLocked ? 'none' : 'auto';
     const op = isEdge && edgeLocked ? 0.35 : 1;
@@ -367,6 +400,7 @@ export function InteractiveCropOverlay(props: Props) {
           pointerEvents: interactive ? 'auto' : 'none',
           cursor: interactive ? 'move' : 'default',
           zIndex: 1,
+          touchAction: interactive ? 'none' : undefined,
         }}
         onPointerDown={(e) => beginDrag('move', e)}
       >
@@ -439,12 +473,10 @@ export function InteractiveCropOverlay(props: Props) {
           pointerEvents: 'none',
           lineHeight: 1.3,
           zIndex: 3,
+          fontVariantNumeric: 'tabular-nums',
         }}
       >
-        Drag frame to move · corners/edges to resize (px: {Math.round(display.x)},{Math.round(display.y)} —{' '}
-        {Math.round(display.w)}×{Math.round(display.h)})
-        {edgeLocked ? ' · aspect lock: corners only' : ''}
-        {cc ? ' · apply or cancel in toolbar' : ''}
+        {Math.round(display.x)}, {Math.round(display.y)} · {Math.round(display.w)}×{Math.round(display.h)}
       </div>
     </div>
   );

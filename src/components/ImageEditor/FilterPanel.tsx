@@ -77,10 +77,6 @@ export function FilterPanel() {
         onInteractionEnd={() => throttledRegeneratePreview.flush()}
       />
 
-      <p className="lf-hint" style={{ margin: 0, fontSize: 12, lineHeight: 1.45, color: 'var(--lf-muted)' }}>
-        Invert, flip, and exact rotation live in the workspace <strong>Options</strong> bar (under the tools), like Photoshop’s options strip.
-      </p>
-
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <button
           type="button"
