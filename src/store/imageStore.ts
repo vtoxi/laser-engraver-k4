@@ -30,7 +30,7 @@ function pickImageFileAsDataUrl(): Promise<{ dataUrl: string; name: string } | n
   });
 }
 
-function toBrowserRasterParams(p: EngraveParamsPayload): BrowserRasterParams {
+export function toBrowserRasterParams(p: EngraveParamsPayload): BrowserRasterParams {
   return {
     cropRect: p.cropRect,
     resizeTo: p.resizeTo,

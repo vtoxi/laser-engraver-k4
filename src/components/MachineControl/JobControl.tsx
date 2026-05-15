@@ -11,6 +11,7 @@ export function JobControl() {
     connectionState,
     jobRunning,
     jobProgress,
+    liveEngrave,
     stopPreview,
     stopJob,
     pauseJob,
@@ -57,6 +58,7 @@ export function JobControl() {
 
   const canRun = connectionState === 'connected' && imageLoaded && !jobRunning;
   const canPreview = connectionState === 'connected' && imageLoaded;
+  const canPauseStop = jobRunning || liveEngrave != null;
 
   const togglePreview = async () => {
     if (!canPreview) return;
@@ -94,16 +96,16 @@ export function JobControl() {
         <button
           type="button"
           onClick={() => void pauseJob()}
-          disabled={!jobRunning}
-          style={btnStyle('#f39c12', !jobRunning)}
+          disabled={!canPauseStop}
+          style={btnStyle('#f39c12', !canPauseStop)}
         >
           ⏸ Pause
         </button>
         <button
           type="button"
           onClick={() => void stopJob()}
-          disabled={!jobRunning}
-          style={btnStyle('#e74c3c', !jobRunning)}
+          disabled={!canPauseStop}
+          style={btnStyle('#e74c3c', !canPauseStop)}
         >
           ■ Stop
         </button>

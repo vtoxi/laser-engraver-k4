@@ -308,6 +308,30 @@ async fn generate_preview(
     .map_err(|e| e.to_string())?
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageDimensions {
+    pub width: u32,
+    pub height: u32,
+}
+
+#[tauri::command]
+async fn set_current_image_from_png_base64(
+    base64_png: String,
+    state: State<'_, AppState>,
+) -> Result<ImageDimensions, String> {
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(base64_png.trim())
+        .map_err(|e| format!("invalid base64: {e}"))?;
+    let img = image::load_from_memory(&bytes).map_err(|e| e.to_string())?;
+    let (w, h) = img.dimensions();
+    *state
+        .current_image
+        .lock()
+        .map_err(|_| "internal lock poisoned".to_string())? = Some(img);
+    Ok(ImageDimensions { width: w, height: h })
+}
+
 #[tauri::command]
 async fn install_driver(app: AppHandle) -> Result<String, String> {
     driver_installer::install(&app).map_err(|e| e.to_string())
@@ -344,6 +368,7 @@ pub fn run() {
             start_engrave_job,
             generate_preview,
             load_image,
+            set_current_image_from_png_base64,
             install_driver,
         ])
         .run(tauri::generate_context!())

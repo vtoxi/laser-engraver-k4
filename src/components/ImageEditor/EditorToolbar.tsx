@@ -1,9 +1,12 @@
 import type { CSSProperties } from 'react';
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import { useEditorHistoryStore } from '../../store/editorHistoryStore';
+import { useLaserHistoryStore } from '../../store/laserHistoryStore';
+import { useLaserCanvasUiStore } from '../../store/laserCanvasUiStore';
 import { useEditorUiStore } from '../../store/editorUiStore';
 import { useImageStore, type CropRectPayload } from '../../store/imageStore';
 import type { CropAspectLock } from '../../store/editorUiStore';
+import { addFabricImagesFromFiles, addFabricText } from '../../lib/laserOperations';
 
 const tbBtn: CSSProperties = {
   width: 40,
@@ -79,15 +82,22 @@ function draftMatchesCommitted(
   return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
 }
 
-export function EditorToolbar() {
+export function EditorToolbar(props: { workW: number; workH: number }) {
+  const { workW, workH } = props;
+  const fileRef = useRef<HTMLInputElement>(null);
   const { params, updateParam, generatePreview, imageWidth, imageHeight } = useImageStore();
   const pastLen = useEditorHistoryStore((s) => s.past.length);
   const futureLen = useEditorHistoryStore((s) => s.future.length);
+  const laserPastLen = useLaserHistoryStore((s) => s.past.length);
+  const laserFutureLen = useLaserHistoryStore((s) => s.future.length);
+  const viewZoom = useLaserCanvasUiStore((s) => s.viewZoom);
   const {
     editorTool,
     setEditorTool,
     simulateScanlines,
     setSimulateScanlines,
+    outlineScanPreviewMode,
+    setOutlineScanPreviewMode,
     cropAspectLock,
     setCropAspectLock,
     cropDraft,
@@ -98,7 +108,6 @@ export function EditorToolbar() {
     setBurnOverlayOpacity,
     textDraft,
     setTextDraft,
-    addTextAnnotation,
     clearAnnotations,
     resetMachineHead,
   } = useEditorUiStore();
@@ -139,16 +148,19 @@ export function EditorToolbar() {
   };
 
   const applyCrop = () => {
+    const ui = useEditorUiStore.getState();
+    const img = useImageStore.getState();
+    const d = ui.cropDraft;
+    const w = Math.max(1, img.imageWidth);
+    const h = Math.max(1, img.imageHeight);
     const cropRect =
-      cropDraft.x === 0 && cropDraft.y === 0 && cropDraft.width === iw && cropDraft.height === ih
-        ? null
-        : { x: cropDraft.x, y: cropDraft.y, width: cropDraft.width, height: cropDraft.height };
+      d.x === 0 && d.y === 0 && d.width === w && d.height === h ? null : { x: d.x, y: d.y, width: d.width, height: d.height };
     useEditorHistoryStore.getState().push();
-    const nextParams = { ...useImageStore.getState().params, cropRect };
+    const nextParams = { ...img.params, cropRect };
     useImageStore.setState({ params: nextParams });
-    void useImageStore.getState().generatePreview(nextParams);
-    syncCropDraftWithParams();
-    useEditorUiStore.getState().clampMachineHead();
+    void img.generatePreview(nextParams);
+    ui.syncCropDraftWithParams();
+    ui.clampMachineHead();
     setEditorTool('select');
   };
 
@@ -160,7 +172,7 @@ export function EditorToolbar() {
     const t = (textDraft ?? '').trim();
     if (!t) return;
     useEditorHistoryStore.getState().push();
-    addTextAnnotation(t);
+    addFabricText(workW, workH, t);
     setTextDraft(null);
     setEditorTool('text');
   };
@@ -199,18 +211,57 @@ export function EditorToolbar() {
       }}
     >
       <Btn
-        title="Undo — revert last editor change (crop, transform, text)"
-        onClick={() => void useEditorHistoryStore.getState().undo()}
-        disabled={pastLen === 0}
+        title="Undo — canvas first, then image params"
+        onClick={() => {
+          if (useLaserHistoryStore.getState().past.length > 0) void useLaserHistoryStore.getState().undo();
+          else void useEditorHistoryStore.getState().undo();
+        }}
+        disabled={laserPastLen === 0 && pastLen === 0}
       >
         ↶
       </Btn>
       <Btn
-        title="Redo — reapply undone change"
-        onClick={() => void useEditorHistoryStore.getState().redo()}
-        disabled={futureLen === 0}
+        title="Redo — canvas first, then image params"
+        onClick={() => {
+          if (useLaserHistoryStore.getState().future.length > 0) void useLaserHistoryStore.getState().redo();
+          else void useEditorHistoryStore.getState().redo();
+        }}
+        disabled={laserFutureLen === 0 && futureLen === 0}
       >
         ↷
+      </Btn>
+
+      <span style={{ width: 1, height: 28, background: 'var(--lf-border)', margin: '0 4px' }} />
+
+      <input
+        ref={fileRef}
+        type="file"
+        multiple
+        accept="image/png,image/jpeg,image/jpg,image/webp,image/bmp,image/svg+xml"
+        style={{ display: 'none' }}
+        onChange={(e) => {
+          const f = e.target.files;
+          if (f && f.length > 0) void addFabricImagesFromFiles(f, workW, workH);
+          e.target.value = '';
+        }}
+      />
+      <Btn title="Add images to canvas" onClick={() => fileRef.current?.click()}>
+        ＋
+      </Btn>
+      <Btn title="Export PNG / SVG" onClick={() => useLaserCanvasUiStore.getState().setExportModalOpen(true)}>
+        ⎘
+      </Btn>
+      <Btn title={`Zoom view (${Math.round(viewZoom * 100)}%)`} onClick={() => useLaserCanvasUiStore.getState().setViewZoom(1)}>
+        ⊡
+      </Btn>
+      <Btn title="Zoom 50%" onClick={() => useLaserCanvasUiStore.getState().setZoomPreset(50)}>
+        50%
+      </Btn>
+      <Btn title="Zoom 100%" onClick={() => useLaserCanvasUiStore.getState().setZoomPreset(100)}>
+        100%
+      </Btn>
+      <Btn title="Zoom 200%" onClick={() => useLaserCanvasUiStore.getState().setZoomPreset(200)}>
+        200%
       </Btn>
 
       <span style={{ width: 1, height: 28, background: 'var(--lf-border)', margin: '0 4px' }} />
@@ -241,14 +292,14 @@ export function EditorToolbar() {
         {aspectLabel}
       </Btn>
       <Btn
-        title="Select — default; no crop drag or bed pan"
+        title="Select — default; drag the image on the bed to move job origin (same as Pan when connected)"
         active={editorTool === 'select'}
         onClick={() => setEditorTool('select')}
       >
         ◉
       </Btn>
       <Btn
-        title="Pan — drag the image on the bed to set job origin; machine jogs when connected"
+        title="Pan — drag the image on the bed to set job origin (same as Select); machine jogs when connected"
         active={editorTool === 'pan'}
         onClick={() => setEditorTool('pan')}
       >
@@ -319,7 +370,7 @@ export function EditorToolbar() {
         />
       </label>
       <label
-        title="Animate a horizontal scan line over the burn preview (visual only)"
+        title="Burn preview animation: horizontal bar for raster; for outline, dot follows job order or a traced boundary (visual only)"
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -332,13 +383,46 @@ export function EditorToolbar() {
       >
         <input
           type="checkbox"
-          title="Toggle scanline animation on burn preview"
-          aria-label="Toggle scanline animation on burn preview"
+          title="Toggle scan preview animation on burn overlay"
+          aria-label="Toggle scan preview animation on burn overlay"
           checked={simulateScanlines}
           onChange={(e) => setSimulateScanlines(e.target.checked)}
         />
-        Scanlines
+        Scan preview
       </label>
+      {simulateScanlines && params.engraveMode === 'outline' && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            fontSize: 11,
+            color: 'var(--lf-muted)',
+            marginLeft: 4,
+            flexWrap: 'wrap',
+          }}
+          title="Job order matches K4 line packets; Contour is a boundary walk for display only"
+        >
+          <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+            <input
+              type="radio"
+              name="outline-scan-mode"
+              checked={outlineScanPreviewMode === 'job'}
+              onChange={() => setOutlineScanPreviewMode('job')}
+            />
+            Job order
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+            <input
+              type="radio"
+              name="outline-scan-mode"
+              checked={outlineScanPreviewMode === 'contour'}
+              onChange={() => setOutlineScanPreviewMode('contour')}
+            />
+            Contour
+          </label>
+        </div>
+      )}
 
       {(showCropActions || showTextActions) && (
         <div

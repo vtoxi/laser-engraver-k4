@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, RefObject } from 'react';
+import { agentDebugLog } from '../../lib/agentDebugLog';
 import { useImageStore, type CropRectPayload } from '../../store/imageStore';
 
 type DragMode = 'move' | 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
@@ -219,6 +220,8 @@ type Props = {
   imageHeight: number;
   aspectWOverH?: number | null;
   interactive?: boolean;
+  /** Stronger dim outside crop while actively adjusting (crop tool). */
+  strongOutsideDim?: boolean;
   /** When set, crop edits call onChange instead of writing the image store (draft mode). */
   controlledCrop?: {
     rect: CropRectPayload;
@@ -233,12 +236,23 @@ export function InteractiveCropOverlay(props: Props) {
     imageHeight: ih,
     aspectWOverH = null,
     interactive = true,
+    strongOutsideDim = false,
     controlledCrop,
   } = props;
   const cc = controlledCrop ?? null;
   const cropRect = useImageStore((s) => s.params.cropRect);
   const [draft, setDraft] = useState<Rect | null>(null);
   const draftRef = useRef<Rect | null>(null);
+  /** Removes window drag listeners + pointer capture (see beginDrag). Unmount must not leave stale pointerup. */
+  const windowDragCleanupRef = useRef<(() => void) | null>(null);
+
+  useEffect(
+    () => () => {
+      windowDragCleanupRef.current?.();
+      windowDragCleanupRef.current = null;
+    },
+    [],
+  );
 
   const syncKey = cc
     ? `${cc.rect.x},${cc.rect.y},${cc.rect.width},${cc.rect.height}`
@@ -258,19 +272,53 @@ export function InteractiveCropOverlay(props: Props) {
   const isFullFrame =
     display.x === 0 && display.y === 0 && Math.round(display.w) === iw && Math.round(display.h) === ih;
 
+  const outsideShade =
+    strongOutsideDim && interactive ? 'rgba(5,8,18,0.62)' : 'rgba(0,0,0,0.28)';
+  const fullFrameHint =
+    strongOutsideDim && interactive ? 'rgba(5,8,18,0.22)' : 'rgba(0,0,0,0.12)';
+
   const shadeBase: CSSProperties = {
     position: 'absolute',
-    background: 'rgba(0,0,0,0.28)',
+    background: outsideShade,
     pointerEvents: 'none',
     zIndex: 0,
   };
+
+  const activeFrameStyle: CSSProperties =
+    strongOutsideDim && interactive
+      ? {
+          border: '1px solid rgba(88, 230, 156, 0.95)',
+          boxShadow:
+            '0 0 0 1px rgba(0,0,0,0.35) inset, 0 0 28px rgba(46, 204, 113, 0.22)',
+        }
+      : {
+          border: '1px solid rgba(46, 204, 113, 0.9)',
+          boxShadow: '0 0 0 1px rgba(0,0,0,0.25) inset',
+        };
 
   const beginDrag = (mode: DragMode, e: React.PointerEvent) => {
     e.preventDefault();
     e.stopPropagation();
     if (!interactive) return;
+    windowDragCleanupRef.current?.();
     const img = imgRef.current;
     if (!img || iw <= 0 || ih <= 0) return;
+    // #region agent log
+    agentDebugLog({
+      runId: 'pre',
+      hypothesisId: 'H2',
+      location: 'InteractiveCropOverlay.tsx:beginDrag',
+      message: 'crop drag started',
+      data: {
+        mode,
+        iw,
+        ih,
+        naturalW: img.naturalWidth,
+        naturalH: img.naturalHeight,
+        hasControlled: !!cc,
+      },
+    });
+    // #endregion
 
     const capEl = e.currentTarget;
     const pointerId = e.pointerId;
@@ -296,7 +344,7 @@ export function InteractiveCropOverlay(props: Props) {
       setDraft(next);
     };
 
-    const onUp = () => {
+    function removeWindowDrag() {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onUp);
@@ -307,16 +355,37 @@ export function InteractiveCropOverlay(props: Props) {
           /* ignore */
         }
       }
+      windowDragCleanupRef.current = null;
+    }
+
+    function onUp() {
+      removeWindowDrag();
       const finalR = draftRef.current ?? session.R0;
       draftRef.current = null;
       setDraft(null);
+      const payload = normalizeRectToPayload(finalR, session.iw, session.ih);
+      // #region agent log
+      agentDebugLog({
+        runId: 'pre',
+        hypothesisId: 'H3',
+        location: 'InteractiveCropOverlay.tsx:onUp',
+        message: 'crop drag end commit',
+        data: {
+          mode: session.mode,
+          finalR,
+          payload,
+          controlled: !!cc,
+        },
+      });
+      // #endregion
       if (cc) {
-        cc.onChange(normalizeRectToPayload(finalR, session.iw, session.ih));
+        cc.onChange(payload);
       } else {
         commitRect(finalR, session.iw, session.ih);
       }
-    };
+    }
 
+    windowDragCleanupRef.current = removeWindowDrag;
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', onUp);
@@ -390,6 +459,18 @@ export function InteractiveCropOverlay(props: Props) {
         borderRadius: 6,
       }}
     >
+      {isFullFrame && interactive && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            borderRadius: 6,
+            background: fullFrameHint,
+            pointerEvents: 'none',
+            zIndex: 0,
+          }}
+        />
+      )}
       {!isFullFrame && (
         <>
           <div style={{ ...shadeBase, left: 0, top: 0, width: '100%', height: `${topPct}%` }} />
@@ -430,13 +511,12 @@ export function InteractiveCropOverlay(props: Props) {
           width: `${wPct}%`,
           height: `${hPct}%`,
           boxSizing: 'border-box',
-          border: '1px solid rgba(46, 204, 113, 0.9)',
           borderRadius: 3,
-          boxShadow: '0 0 0 1px rgba(0,0,0,0.25) inset',
           pointerEvents: interactive ? 'auto' : 'none',
           cursor: interactive ? 'move' : 'default',
           zIndex: 1,
           touchAction: interactive ? 'none' : undefined,
+          ...activeFrameStyle,
         }}
         onPointerDown={(e) => beginDrag('move', e)}
       >

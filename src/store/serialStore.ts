@@ -45,6 +45,15 @@ function webPortInfo(port: SerialPort, index: number): PortInfo {
   return { path, description, is_k4_candidate: isK4 };
 }
 
+export type LiveEngraveState = {
+  jobPixelW: number;
+  jobPixelH: number;
+  /** Raster height (lines per pass). */
+  bitmapRows: number;
+  /** Current / last completed scan line index (0 … bitmapRows−1). */
+  lineY: number;
+};
+
 interface SerialState {
   ports: PortInfo[];
   selectedPort: string | null;
@@ -57,6 +66,8 @@ interface SerialState {
   jobProgress: number;
   jobRunning: boolean;
   jobPaused: boolean;
+  /** Live position hint during engrave (browser + desktop). */
+  liveEngrave: LiveEngraveState | null;
   applySerialEvent: (payload: { type: string; [key: string]: unknown }) => void;
   setShowAllPorts: (show: boolean) => void;
   refreshPorts: () => Promise<void>;
@@ -84,6 +95,7 @@ export const useSerialStore = create<SerialState>((set, get) => ({
   jobProgress: 0,
   jobRunning: false,
   jobPaused: false,
+  liveEngrave: null,
 
   applySerialEvent: (payload) => {
     switch (payload.type) {
@@ -105,20 +117,43 @@ export const useSerialStore = create<SerialState>((set, get) => ({
         {
           const was = get().connectionState;
           resetJobNotifyFlags();
-          set({ connectionState: 'disconnected', jobRunning: false, jobPaused: false });
+          set({ connectionState: 'disconnected', jobRunning: false, jobPaused: false, liveEngrave: null });
           if (was === 'connected' || was === 'error') {
             notifyMachineDisconnected();
           }
         }
         break;
-      case 'progress':
+      case 'job_started': {
+        const jobPixelW = Math.max(1, Math.floor(Number(payload.jobPixelW ?? payload.job_w ?? 1)));
+        const jobPixelH = Math.max(1, Math.floor(Number(payload.jobPixelH ?? payload.job_h ?? 1)));
+        const bitmapRows = Math.max(1, Math.floor(Number(payload.bitmapRows ?? payload.rows ?? jobPixelH)));
         set({
-          jobProgress: Number(payload.pct ?? 0),
           jobRunning: true,
+          jobPaused: false,
+          jobProgress: 0,
+          liveEngrave: { jobPixelW, jobPixelH, bitmapRows, lineY: 0 },
+        });
+        break;
+      }
+      case 'progress':
+        set((s) => {
+          const lineY = Math.max(
+            0,
+            Math.floor(Number(payload.lineY ?? payload.line_y ?? s.liveEngrave?.lineY ?? 0)),
+          );
+          const nextLive =
+            s.liveEngrave != null
+              ? { ...s.liveEngrave, lineY: Math.min(lineY, s.liveEngrave.bitmapRows - 1) }
+              : null;
+          return {
+            jobProgress: Number(payload.pct ?? 0),
+            jobRunning: true,
+            liveEngrave: nextLive,
+          };
         });
         break;
       case 'job_complete':
-        set({ jobProgress: 100, jobRunning: false, jobPaused: false });
+        set({ jobProgress: 100, jobRunning: false, jobPaused: false, liveEngrave: null });
         dispatchJobCompleteNotification();
         break;
       case 'error': {
@@ -127,6 +162,7 @@ export const useSerialStore = create<SerialState>((set, get) => ({
           connectionState: 'error',
           errorMessage: String(payload.message ?? 'Unknown error'),
           jobRunning: false,
+          liveEngrave: null,
         });
         if (jobWasRunning) {
           markJobHadRuntimeError();
@@ -271,6 +307,7 @@ export const useSerialStore = create<SerialState>((set, get) => ({
       } else {
         await getWebSerialBridge().pauseJob();
       }
+      set({ jobPaused: true });
       notifyEngraveJobPaused();
     } catch (e) {
       console.error('pauseJob failed:', e);

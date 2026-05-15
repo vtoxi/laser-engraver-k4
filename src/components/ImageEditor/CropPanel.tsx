@@ -66,8 +66,8 @@ export function CropPanel() {
       x0 === 0 && y0 === 0 && w0 === imageWidth && h0 === imageHeight;
     const cropRect = fullFrame ? null : { x: x0, y: y0, width: w0, height: h0 };
 
-    const nextParams = { ...useImageStore.getState().params, cropRect };
     useEditorHistoryStore.getState().push();
+    const nextParams = { ...useImageStore.getState().params, cropRect };
     useImageStore.setState({ params: nextParams });
     void generatePreview(nextParams);
     useEditorUiStore.getState().syncCropDraftWithParams();

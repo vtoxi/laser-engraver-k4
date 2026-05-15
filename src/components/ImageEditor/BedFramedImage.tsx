@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { CSSProperties, ReactNode, RefObject } from 'react';
+import type { CSSProperties, ReactNode, RefObject, Ref, PointerEvent as ReactPointerEvent } from 'react';
+import { agentDebugLog } from '../../lib/agentDebugLog';
 
 export type BedStackLayout = { bedW: number; bedH: number; stackW: number; stackH: number };
 
@@ -59,6 +60,7 @@ export function BedFramedImage(props: Props) {
     move: (ev: PointerEvent) => void;
     up: (ev: PointerEvent) => void;
   } | null>(null);
+  const panPointerIdRef = useRef<number | null>(null);
 
   const publishLayout = useCallback(() => {
     const bedEl = bedInnerRef.current;
@@ -94,11 +96,21 @@ export function BedFramedImage(props: Props) {
         panWindowHandlersRef.current = null;
       }
       lastPanRef.current = null;
+      const bed = bedInnerRef.current;
+      const id = panPointerIdRef.current;
+      panPointerIdRef.current = null;
+      if (bed && id != null) {
+        try {
+          if (bed.hasPointerCapture(id)) bed.releasePointerCapture(id);
+        } catch {
+          /* ignore */
+        }
+      }
     };
   }, []);
 
   const startPan = useCallback(
-    (e: React.PointerEvent) => {
+    (e: ReactPointerEvent<HTMLDivElement>) => {
       if (!panEnabled || !onPanPixelDelta || e.button !== 0) return;
       e.preventDefault();
       const prevHandlers = panWindowHandlersRef.current;
@@ -107,8 +119,27 @@ export function BedFramedImage(props: Props) {
         window.removeEventListener('pointerup', prevHandlers.up);
         window.removeEventListener('pointercancel', prevHandlers.up);
       }
+      const bed = bedInnerRef.current;
+      const pid = e.pointerId;
+      panPointerIdRef.current = pid;
+      if (bed) {
+        try {
+          bed.setPointerCapture(pid);
+        } catch {
+          /* ignore */
+        }
+      }
       lastPanRef.current = { x: e.clientX, y: e.clientY };
       setPanning(true);
+      // #region agent log
+      agentDebugLog({
+        runId: 'pre',
+        hypothesisId: 'H5',
+        location: 'BedFramedImage.tsx:startPan',
+        message: 'bed pan gesture started',
+        data: { clientX: e.clientX, clientY: e.clientY, pointerId: e.pointerId },
+      });
+      // #endregion
       const move = (ev: PointerEvent) => {
         if (!onPanPixelDelta || !lastPanRef.current) return;
         const prev = lastPanRef.current;
@@ -124,6 +155,15 @@ export function BedFramedImage(props: Props) {
           window.removeEventListener('pointerup', h.up);
           window.removeEventListener('pointercancel', h.up);
           panWindowHandlersRef.current = null;
+        }
+        const id = panPointerIdRef.current;
+        panPointerIdRef.current = null;
+        if (bed && id != null) {
+          try {
+            if (bed.hasPointerCapture(id)) bed.releasePointerCapture(id);
+          } catch {
+            /* ignore */
+          }
         }
         lastPanRef.current = null;
         setPanning(false);
@@ -198,10 +238,11 @@ export function BedFramedImage(props: Props) {
               WebkitClipPath: imageClipPath,
               touchAction: panEnabled ? 'none' : undefined,
               isolation: 'isolate',
+              transform: 'translateZ(0)',
             }}
           >
             <img
-              ref={imgRef as React.Ref<HTMLImageElement>}
+              ref={imgRef as Ref<HTMLImageElement>}
               src={src}
               alt={alt}
               draggable={false}

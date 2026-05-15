@@ -1,5 +1,7 @@
-/** K4 binary opcodes (mirrors `src-tauri/src/serial/protocol.rs`). */
-
+/**
+ * K4 binary opcodes (mirrors `src-tauri/src/serial/protocol.rs`).
+ * Research note: OEM vector / true contour-outline motion may use additional opcodes — compare USB capture with this file.
+ */
 export const ACK = 0x09;
 
 export const bytesConnect = (): Uint8Array => Uint8Array.of(0x01);

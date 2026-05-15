@@ -251,20 +251,31 @@ export class WebSerialBridge {
       return;
     }
 
+    const jobPixelW = lines[0]?.length ?? 0;
+    const jobPixelH = lines.length;
+    emit(this.listeners, {
+      type: 'job_started',
+      jobPixelW,
+      jobPixelH,
+      bitmapRows: rows,
+    });
+
     try {
       let done = 0;
+      const emitStride = rows > 900 ? 3 : rows > 400 ? 2 : 1;
       for (let pass = 0; pass < passes; pass++) {
         for (let row = 0; row < rows; row++) {
           if (this.jobCancel) break;
           const lineBuf = proto.bytesImageLine(lines[row], row, depth, power);
           await this.sendCommand(lineBuf, 3000, 3);
           done += 1;
-          if (row % 8 === 0 || row + 1 === rows) {
+          if (row % emitStride === 0 || row + 1 === rows) {
             emit(this.listeners, {
               type: 'progress',
               row: done,
               total: totalLines,
               pct: (done / totalLines) * 100,
+              lineY: row,
             });
           }
         }

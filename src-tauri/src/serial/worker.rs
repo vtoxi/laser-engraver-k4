@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{Receiver, TryRecvError};
 
 use tauri::{AppHandle, Emitter};
 
@@ -53,10 +53,16 @@ pub enum WorkerEvent {
         port: String,
     },
     Disconnected,
+    JobStarted {
+        job_w: u32,
+        job_h: u32,
+        rows: u32,
+    },
     Progress {
         row: u32,
         total: u32,
         pct: f32,
+        line_y: u32,
     },
     JobComplete,
     Error {
@@ -66,6 +72,28 @@ pub enum WorkerEvent {
 
 fn emit(app: &AppHandle, evt: WorkerEvent) {
     let _ = app.emit("serial-event", &evt);
+}
+
+/// Handle Stop / Pause while a long engrave loop is running (same thread as `StartJob`).
+fn drain_job_control_msgs(
+    rx: &Receiver<WorkerMsg>,
+    cancel: &Arc<AtomicBool>,
+    port: &mut Box<dyn serialport::SerialPort>,
+) {
+    loop {
+        match rx.try_recv() {
+            Ok(WorkerMsg::StopJob) => {
+                cancel.store(true, Ordering::SeqCst);
+                let _ = send_command(port, &stop_engrave());
+            }
+            Ok(WorkerMsg::PauseJob) => {
+                let _ = send_command(port, &pause_engrave());
+            }
+            Ok(_) => {}
+            Err(TryRecvError::Empty) => break,
+            Err(TryRecvError::Disconnected) => break,
+        }
+    }
 }
 
 pub fn run_worker(rx: Receiver<WorkerMsg>, app: AppHandle) {
@@ -190,9 +218,21 @@ pub fn run_worker(rx: Receiver<WorkerMsg>, app: AppHandle) {
                         continue;
                     }
 
+                    let job_w = lines.first().map(|r| r.len()).unwrap_or(0) as u32;
+                    emit(
+                        &app,
+                        WorkerEvent::JobStarted {
+                            job_w,
+                            job_h: rows,
+                            rows,
+                        },
+                    );
+
                     let mut done: u32 = 0;
+                    let emit_stride = if rows > 900 { 3 } else if rows > 400 { 2 } else { 1 };
                     'outer: for _pass in 0..passes {
                         for (row, pixels) in lines.iter().enumerate() {
+                            drain_job_control_msgs(&rx, &cancel, p);
                             if cancel.load(Ordering::SeqCst) {
                                 break 'outer;
                             }
@@ -220,7 +260,7 @@ pub fn run_worker(rx: Receiver<WorkerMsg>, app: AppHandle) {
                                 break 'outer;
                             }
                             done += 1;
-                            if row % 8 == 0 || row + 1 == lines.len() {
+                            if row % emit_stride as usize == 0 || row + 1 == lines.len() {
                                 let pct = (done as f32 / total_lines as f32) * 100.0;
                                 emit(
                                     &app,
@@ -228,6 +268,7 @@ pub fn run_worker(rx: Receiver<WorkerMsg>, app: AppHandle) {
                                         row: done,
                                         total: total_lines,
                                         pct,
+                                        line_y: row as u32,
                                     },
                                 );
                             }

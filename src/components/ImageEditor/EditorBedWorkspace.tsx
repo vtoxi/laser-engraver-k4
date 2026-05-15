@@ -1,15 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { WorkspaceJogOverlay } from '../MachineControl/WorkspaceJogOverlay';
 import { useEditorUiStore } from '../../store/editorUiStore';
-import { useImageStore } from '../../store/imageStore';
-import type { CropRectPayload } from '../../store/imageStore';
+import { useImageStore, toBrowserRasterParams } from '../../store/imageStore';
 import { computeWorkAreaPixels, useSettingsStore } from '../../store/settingsStore';
-import { imageClipPathFromCrop } from '../../lib/imageClipPath';
 import { jobMachineRegion } from '../../lib/jobMachineRegion';
-import type { BedStackLayout } from './BedFramedImage';
+import { flattenContourLoops, boundaryLoopsFromFilledMask } from '../../lib/maskBoundaryPaths';
+import { flattenJobPixels, repeatJobPoints } from '../../lib/rasterJobPath';
+import type { Pixel } from '../../lib/rasterJobPath';
+import { rasterizeFromImageUrlWithGeometry } from '../../image/browserImagePipeline';
+import { BurnScanDotOverlay } from './BurnScanDotOverlay';
+import { LiveEngraveLaserOverlay } from './LiveEngraveLaserOverlay';
 import { EditorAdvancedToolbar } from './EditorAdvancedToolbar';
 import { EditorToolbar } from './EditorToolbar';
-import { WorkspaceOriginalPreview } from './WorkspaceOriginalPreview';
+import { LaserCanvas } from '../Canvas/LaserCanvas';
+import { LayerPanel } from '../Canvas/LayerPanel';
+import { PropertiesPanel } from '../Canvas/PropertiesPanel';
+import { ExportModal } from '../Canvas/ExportModal';
+import { useLaserCanvasUiStore } from '../../store/laserCanvasUiStore';
+import { useLaserKeyboard } from '../../hooks/useLaserKeyboard';
+import { BED_EDITOR_VIEWPORT_H, BED_EDITOR_VIEWPORT_W } from '../../utils/constants';
 
 function BurnScanlines() {
   const [t, setT] = useState(0);
@@ -40,6 +49,10 @@ function BurnScanlines() {
 }
 
 export function EditorBedWorkspace() {
+  useLaserKeyboard();
+  const exportModalOpen = useLaserCanvasUiStore((s) => s.exportModalOpen);
+  const setExportModalOpen = useLaserCanvasUiStore((s) => s.setExportModalOpen);
+
   const {
     originalPreview,
     processedPreview,
@@ -49,26 +62,36 @@ export function EditorBedWorkspace() {
     previewError,
     imageLoaded,
     params,
+    imagePath,
   } = useImageStore();
   const { bedWidthMm, bedHeightMm, pixelsPerMm } = useSettingsStore();
   const workPx = computeWorkAreaPixels(bedWidthMm, bedHeightMm, pixelsPerMm);
+  const [workW, workH] = workPx;
+
   const {
     editorTool,
     simulateScanlines,
-    cropAspectLock,
+    outlineScanPreviewMode,
     annotations,
     burnOverlayVisible,
     burnOverlayOpacity,
-    cropDraft,
     machineHeadX,
     machineHeadY,
   } = useEditorUiStore();
 
-  const [bedLayout, setBedLayout] = useState<BedStackLayout>({ bedW: 0, bedH: 0, stackW: 0, stackH: 0 });
+  const burnPreviewImgRef = useRef<HTMLImageElement>(null);
+  const [outlineScanPath, setOutlineScanPath] = useState<{
+    points: Pixel[];
+    jobW: number;
+    jobH: number;
+  } | null>(null);
+  const outlineScanGen = useRef(0);
+
+  const [bedLayout, setBedLayout] = useState({ bedW: 0, bedH: 0, stackW: 0, stackH: 0 });
   const bedLayoutRef = useRef(bedLayout);
   bedLayoutRef.current = bedLayout;
 
-  const onBedStackLayout = useCallback((info: BedStackLayout) => {
+  const onBedStackLayout = useCallback((info: typeof bedLayout) => {
     setBedLayout(info);
   }, []);
 
@@ -81,23 +104,6 @@ export function EditorBedWorkspace() {
     if (!imageLoaded || imageWidth <= 0 || imageHeight <= 0) return;
     useEditorUiStore.getState().clampMachineHead();
   }, [imageLoaded, imageWidth, imageHeight, params.cropRect, params.resizeTo, bedWidthMm, bedHeightMm, pixelsPerMm]);
-
-  const iw = Math.max(1, imageWidth);
-  const ih = Math.max(1, imageHeight);
-
-  const imageClipPath = useMemo(() => {
-    if (!imageLoaded || iw <= 0 || ih <= 0) return undefined;
-    if (editorTool === 'crop') {
-      const d = cropDraft;
-      const full = d.x === 0 && d.y === 0 && d.width === iw && d.height === ih;
-      if (full) return undefined;
-      return imageClipPathFromCrop(d, iw, ih);
-    }
-    return imageClipPathFromCrop(params.cropRect, iw, ih);
-  }, [imageLoaded, editorTool, cropDraft, params.cropRect, iw, ih]);
-
-  const cropAspectWOverH =
-    cropAspectLock === '1:1' ? 1 : cropAspectLock === 'bed' ? bedWidthMm / Math.max(1e-9, bedHeightMm) : null;
 
   const { translateXPx, translateYPx } = useMemo(() => {
     if (!imageLoaded || imageWidth <= 0 || imageHeight <= 0) {
@@ -131,59 +137,83 @@ export function EditorBedWorkspace() {
     machineHeadY,
   ]);
 
-  const onPanPixelDelta = useCallback((dx: number, dy: number) => {
-    const L = bedLayoutRef.current;
-    const spanX = Math.max(0, L.bedW - L.stackW);
-    const spanY = Math.max(0, L.bedH - L.stackH);
-    const st = useImageStore.getState();
-    const set = useSettingsStore.getState();
-    if (!st.imageLoaded || st.imageWidth <= 0 || st.imageHeight <= 0) return;
-    const { maxW, maxH, jobW, jobH } = jobMachineRegion({
-      imageWidth: st.imageWidth,
-      imageHeight: st.imageHeight,
-      params: st.params,
-      bedWidthMm: set.bedWidthMm,
-      bedHeightMm: set.bedHeightMm,
-      pixelsPerMm: set.pixelsPerMm,
-    });
-    const mhx = Math.max(0, maxW - jobW);
-    const mhy = Math.max(0, maxH - jobH);
-    const stackW = Math.max(1, L.stackW);
-    const stackH = Math.max(1, L.stackH);
-    const dhx =
-      mhx > 0 ? (spanX > 0 ? (dx / spanX) * mhx : (dx / stackW) * mhx) : 0;
-    const dhy =
-      mhy > 0 ? (spanY > 0 ? (dy / spanY) * mhy : (dy / stackH) * mhy) : 0;
-    if (dhx === 0 && dhy === 0) return;
-    const ui = useEditorUiStore.getState();
-    ui.setMachineHead(ui.machineHeadX + dhx, ui.machineHeadY + dhy, false);
-  }, []);
-
   useEffect(() => {
-    if (!imageLoaded || imageWidth <= 0 || imageHeight <= 0) return;
-    useEditorUiStore.getState().syncCropDraftWithParams();
-  }, [imageLoaded, imageWidth, imageHeight]);
+    if (
+      !simulateScanlines ||
+      params.engraveMode !== 'outline' ||
+      !originalPreview ||
+      !processedPreview ||
+      !burnOverlayVisible
+    ) {
+      setOutlineScanPath(null);
+      return;
+    }
+    const gen = ++outlineScanGen.current;
+    const rasterParams = toBrowserRasterParams(params);
+    const mode = useEditorUiStore.getState().outlineScanPreviewMode;
+    void rasterizeFromImageUrlWithGeometry(originalPreview, rasterParams)
+      .then(({ lines, filledThresholdMask }) => {
+        if (gen !== outlineScanGen.current) return;
+        const jobW = lines[0]?.length ?? 0;
+        const jobH = lines.length;
+        if (jobW <= 0 || jobH <= 0) {
+          setOutlineScanPath(null);
+          return;
+        }
+        let points: Pixel[];
+        if (mode === 'job') {
+          points = repeatJobPoints(flattenJobPixels(lines), params.passes);
+        } else if (filledThresholdMask) {
+          const loops = boundaryLoopsFromFilledMask(filledThresholdMask);
+          points = flattenContourLoops(loops);
+          if (points.length === 0) points = flattenJobPixels(lines);
+        } else {
+          points = flattenJobPixels(lines);
+        }
+        if (points.length === 0) {
+          setOutlineScanPath(null);
+          return;
+        }
+        setOutlineScanPath({ points, jobW, jobH });
+      })
+      .catch(() => {
+        if (gen !== outlineScanGen.current) return;
+        setOutlineScanPath(null);
+      });
+  }, [
+    simulateScanlines,
+    params.engraveMode,
+    params.passes,
+    params.threshold,
+    params.cropRect,
+    params.resizeTo,
+    params.brightness,
+    params.contrast,
+    params.invert,
+    params.rotateDeg,
+    params.flipH,
+    params.flipV,
+    params.ditherMode,
+    outlineScanPreviewMode,
+    originalPreview,
+    processedPreview,
+    burnOverlayVisible,
+  ]);
 
-  const controlledCrop = useMemo(() => {
-    if (editorTool !== 'crop') return undefined;
-    return {
-      rect: cropDraft,
-      onChange: (next: CropRectPayload | null) => {
-        const st = useImageStore.getState();
-        const w = Math.max(1, st.imageWidth);
-        const h = Math.max(1, st.imageHeight);
-        const rect = next == null ? { x: 0, y: 0, width: w, height: h } : next;
-        useEditorUiStore.setState({ cropDraft: rect });
-      },
-    };
-  }, [editorTool, cropDraft]);
-
-  const stackAfterBase = useMemo(() => {
-    if (!processedPreview || !burnOverlayVisible) return undefined;
+  const burnOverlayStack = useMemo(() => {
+    if (!processedPreview || !burnOverlayVisible) return null;
     const op = burnOverlayOpacity;
+    const showRasterScanBar = simulateScanlines && params.engraveMode === 'raster';
+    const showOutlineDot =
+      simulateScanlines &&
+      params.engraveMode === 'outline' &&
+      outlineScanPath != null &&
+      outlineScanPath.points.length > 0;
+
     return (
       <>
         <img
+          ref={burnPreviewImgRef}
           src={processedPreview}
           alt=""
           aria-hidden
@@ -193,7 +223,7 @@ export function EditorBedWorkspace() {
             top: 0,
             width: '100%',
             height: '100%',
-            objectFit: 'contain',
+            objectFit: 'fill',
             opacity: op,
             pointerEvents: 'none',
             zIndex: 1,
@@ -203,82 +233,167 @@ export function EditorBedWorkspace() {
             boxSizing: 'border-box',
           }}
         />
-        {simulateScanlines ? (
+        {showRasterScanBar ? (
           <div style={{ position: 'absolute', inset: 0, zIndex: 2, pointerEvents: 'none' }}>
             <BurnScanlines />
           </div>
         ) : null}
+        {showOutlineDot ? (
+          <BurnScanDotOverlay
+            imgRef={burnPreviewImgRef}
+            logicalWidth={outlineScanPath!.jobW}
+            logicalHeight={outlineScanPath!.jobH}
+            points={outlineScanPath!.points}
+          />
+        ) : null}
       </>
     );
-  }, [processedPreview, burnOverlayVisible, burnOverlayOpacity, simulateScanlines]);
+  }, [
+    processedPreview,
+    burnOverlayVisible,
+    burnOverlayOpacity,
+    simulateScanlines,
+    params.engraveMode,
+    outlineScanPath,
+  ]);
 
-  const overBed = annotations.length > 0 ? (
-    <>
-      {annotations.map((a) => (
-        <div
-          key={a.id}
-          title={a.text}
-          style={{
-            position: 'absolute',
-            left: `${a.xNorm * 100}%`,
-            top: `${a.yNorm * 100}%`,
-            maxWidth: '88%',
-            padding: '4px 8px',
-            borderRadius: 6,
-            background: 'rgba(0,0,0,0.45)',
-            border: '1px solid rgba(255,255,255,0.2)',
-            color: 'var(--lf-text)',
-            fontSize: 14,
-            fontWeight: 600,
-            textShadow: '0 1px 3px #000',
-            pointerEvents: editorTool === 'text' ? 'auto' : 'none',
-            lineHeight: 1.25,
-          }}
-        >
-          {a.text}
-        </div>
-      ))}
-    </>
-  ) : undefined;
+  const stackAfterBase =
+    burnOverlayStack != null ? (
+      <>
+        {burnOverlayStack}
+        <LiveEngraveLaserOverlay imgRef={burnPreviewImgRef} />
+      </>
+    ) : undefined;
+
+  const overBed =
+    annotations.length > 0 ? (
+      <>
+        {annotations.map((a) => (
+          <div
+            key={a.id}
+            title={a.text}
+            style={{
+              position: 'absolute',
+              left: `${a.xNorm * 100}%`,
+              top: `${a.yNorm * 100}%`,
+              maxWidth: '88%',
+              padding: '4px 8px',
+              borderRadius: 6,
+              background: 'rgba(0,0,0,0.45)',
+              border: '1px solid rgba(255,255,255,0.2)',
+              color: 'var(--lf-text)',
+              fontSize: 14,
+              fontWeight: 600,
+              textShadow: '0 1px 3px #000',
+              pointerEvents: editorTool === 'text' ? 'auto' : 'none',
+              lineHeight: 1.25,
+            }}
+          >
+            {a.text}
+          </div>
+        ))}
+      </>
+    ) : undefined;
+
+  const seedKey = `${imagePath ?? 'blob'}:${imageWidth}x${imageHeight}`;
 
   return (
     <div className="lf-workspace-playground">
+      <ExportModal open={exportModalOpen} onClose={() => setExportModalOpen(false)} />
       <div className="lf-ps-toolbar-stack">
-        <EditorToolbar />
+        <EditorToolbar workW={workW} workH={workH} />
         <EditorAdvancedToolbar />
       </div>
       <section className="lf-panel lf-stack" style={{ padding: 16 }}>
         <div className="lf-hint" style={{ color: 'var(--lf-text)', fontWeight: 600 }}>
-          Bed {bedWidthMm}×{bedHeightMm} mm · {imageWidth}×{imageHeight}px · max {workPx[0]}×{workPx[1]} px
+          Bed {bedWidthMm}×{bedHeightMm} mm · job {imageWidth}×{imageHeight}px · canvas {workPx[0]}×{workPx[1]} px
           {isGeneratingPreview ? ' · …' : ''}
-          {previewError ? (
-            <span style={{ color: 'var(--lf-danger)', marginLeft: 8 }}>{previewError}</span>
-          ) : null}
+          {previewError ? <span style={{ color: 'var(--lf-danger)', marginLeft: 8 }}>{previewError}</span> : null}
         </div>
-        <WorkspaceOriginalPreview
-          src={originalPreview!}
-          alt="Job source"
-          imageWidth={imageWidth}
-          imageHeight={imageHeight}
-          bedWidthMm={bedWidthMm}
-          bedHeightMm={bedHeightMm}
-          cropAspectWOverH={cropAspectWOverH}
-          cropInteractive={editorTool === 'crop'}
-          showCropOverlay={editorTool === 'crop'}
-          controlledCrop={controlledCrop}
-          stackAfterBase={stackAfterBase}
-          imgStyle={{
-            border: '1px solid var(--lf-border)',
-            imageRendering: 'pixelated',
-          }}
-          overBed={overBed}
-          translateXPx={translateXPx}
-          translateYPx={translateYPx}
-          panTool={editorTool === 'pan'}
-          onPanPixelDelta={onPanPixelDelta}
-          onBedStackLayout={onBedStackLayout}
-          imageClipPath={imageClipPath}
-        />
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-start' }}>
+          <div
+            style={{
+              flex: '0 0 auto',
+              width: '100%',
+              maxWidth: BED_EDITOR_VIEWPORT_W,
+              position: 'relative',
+              background: 'var(--lf-bg, #0f1117)',
+              borderRadius: 10,
+              padding: 12,
+              boxSizing: 'border-box',
+            }}
+          >
+            <div
+              data-lf-bed-viewport
+              style={{
+                width: '100%',
+                height: BED_EDITOR_VIEWPORT_H,
+                maxWidth: BED_EDITOR_VIEWPORT_W,
+                margin: '0 auto',
+                overflow: 'auto',
+                overscrollBehavior: 'contain',
+                borderRadius: 8,
+                border: '1px solid var(--lf-border)',
+                background: 'rgba(0,0,0,0.25)',
+                boxSizing: 'border-box',
+              }}
+            >
+              <div
+                style={{
+                  position: 'relative',
+                  transform: `translate(${translateXPx}px, ${translateYPx}px)`,
+                  display: 'inline-block',
+                  verticalAlign: 'top',
+                }}
+              >
+                {originalPreview ? (
+                  <LaserCanvas
+                    workW={workW}
+                    workH={workH}
+                    bedWidthMm={bedWidthMm}
+                    bedHeightMm={bedHeightMm}
+                    pixelsPerMm={pixelsPerMm}
+                    seedKey={seedKey}
+                    seedDataUrl={originalPreview}
+                    onCanvasLayout={onBedStackLayout}
+                  />
+                ) : null}
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: 20,
+                    top: 20,
+                    width: bedLayout.stackW || '100%',
+                    height: bedLayout.stackH || '100%',
+                    pointerEvents: 'none',
+                    zIndex: 5,
+                  }}
+                >
+                  {stackAfterBase}
+                </div>
+                {overBed ? (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      left: 20,
+                      top: 20,
+                      width: bedLayout.stackW || '100%',
+                      height: bedLayout.stackH || '100%',
+                      pointerEvents: editorTool === 'text' ? 'auto' : 'none',
+                      zIndex: 6,
+                    }}
+                  >
+                    {overBed}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+          <div style={{ width: 280, flexShrink: 0 }}>
+            <LayerPanel />
+            <PropertiesPanel />
+          </div>
+        </div>
       </section>
       <WorkspaceJogOverlay />
     </div>

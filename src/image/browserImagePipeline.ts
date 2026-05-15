@@ -193,10 +193,16 @@ function drawToCanvas(
   return ctx.getImageData(0, 0, c.width, c.height);
 }
 
-export async function rasterizeFromImageUrl(
+export type RasterizeWithGeometryResult = {
+  lines: boolean[][];
+  /** Outline mode only: filled threshold mask used to build the edge bitmap. */
+  filledThresholdMask: boolean[][] | null;
+};
+
+export async function rasterizeFromImageUrlWithGeometry(
   dataUrl: string,
   params: BrowserRasterParams,
-): Promise<boolean[][]> {
+): Promise<RasterizeWithGeometryResult> {
   const img = new Image();
   img.crossOrigin = 'anonymous';
   img.src = dataUrl;
@@ -266,9 +272,10 @@ export async function rasterizeFromImageUrl(
   const gray = rgbaToLuma2d(id.data, w, h);
 
   let lines: boolean[][];
+  let filledThresholdMask: boolean[][] | null = null;
   if (params.engraveMode === 'outline') {
-    const mask = thresholdRaster(gray, w, h, params.threshold);
-    lines = foregroundOutline(mask);
+    filledThresholdMask = thresholdRaster(gray, w, h, params.threshold);
+    lines = foregroundOutline(filledThresholdMask);
   } else {
     switch (params.ditherMode) {
       case 'floyd':
@@ -289,6 +296,14 @@ export async function rasterizeFromImageUrl(
   if (!lines.some((row) => row.some((on) => on))) {
     throw new Error('Nothing to engrave (try outline threshold or raster mode)');
   }
+  return { lines, filledThresholdMask };
+}
+
+export async function rasterizeFromImageUrl(
+  dataUrl: string,
+  params: BrowserRasterParams,
+): Promise<boolean[][]> {
+  const { lines } = await rasterizeFromImageUrlWithGeometry(dataUrl, params);
   return lines;
 }
 

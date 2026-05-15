@@ -75,8 +75,10 @@ export function EngravingParams() {
           ))}
         </div>
         <div style={{ fontSize: 11, color: '#888', marginTop: 8, lineHeight: 1.4 }}>
-          Outline traces the boundary of dark vs light using the Threshold control on the Image tab.
-          The laser only fires on that edge; the head still moves in normal scan rows (K4 line protocol).
+          Outline traces the boundary of dark vs light using the Threshold control on the Image tab. In this app,
+          outline jobs are sent as a sparse bitmap over the same row-by-row K4 line protocol as raster fill (laser on
+          only on edge pixels). Some OEM software can drive true contour motion for shorter engrave time; that would
+          require additional K4 protocol support and is not implemented here yet.
         </div>
       </div>
 

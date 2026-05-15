@@ -23,6 +23,8 @@ function cropPayloadFromParams(iw: number, ih: number, cropRect: CropRectPayload
 interface EditorUiState {
   editorTool: EditorTool;
   simulateScanlines: boolean;
+  /** Outline burn preview: actual K4 row order vs traced boundary (visual only). */
+  outlineScanPreviewMode: 'job' | 'contour';
   cropAspectLock: CropAspectLock;
   /** Draft crop in image pixels (full image = 0,0,iw,ih). Applied on “Apply crop”. */
   cropDraft: CropRectPayload;
@@ -36,6 +38,7 @@ interface EditorUiState {
 
   setEditorTool: (t: EditorTool) => void;
   setSimulateScanlines: (v: boolean) => void;
+  setOutlineScanPreviewMode: (v: 'job' | 'contour') => void;
   setCropAspectLock: (v: CropAspectLock) => void;
   setBurnOverlayVisible: (v: boolean) => void;
   setBurnOverlayOpacity: (v: number) => void;
@@ -80,6 +83,7 @@ function clampHeadCoords(mx: number, my: number): { x: number; y: number } {
 export const useEditorUiStore = create<EditorUiState>((set, get) => ({
   editorTool: 'select',
   simulateScanlines: false,
+  outlineScanPreviewMode: 'contour',
   cropAspectLock: 'free',
   cropDraft: { x: 0, y: 0, width: 1, height: 1 },
   burnOverlayVisible: true,
@@ -119,6 +123,7 @@ export const useEditorUiStore = create<EditorUiState>((set, get) => ({
   },
 
   setSimulateScanlines: (simulateScanlines) => set({ simulateScanlines }),
+  setOutlineScanPreviewMode: (outlineScanPreviewMode) => set({ outlineScanPreviewMode }),
   setCropAspectLock: (cropAspectLock) => set({ cropAspectLock }),
   setBurnOverlayVisible: (burnOverlayVisible) => set({ burnOverlayVisible }),
   setBurnOverlayOpacity: (burnOverlayOpacity) =>

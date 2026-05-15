@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useLayoutEffect } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import type { CropRectPayload } from '../../store/imageStore';
 import type { BedStackLayout } from './BedFramedImage';
@@ -25,6 +25,8 @@ type Props = {
   onPanPixelDelta?: (dx: number, dy: number) => void;
   onBedStackLayout?: (info: BedStackLayout) => void;
   imageClipPath?: string;
+  /** Notified when the base bed image element is mounted or replaced (for overlays aligned to the source bitmap). */
+  onBaseImageReady?: (el: HTMLImageElement | null) => void;
 };
 
 /** Raster inside machine bed frame + optional crop UI. */
@@ -49,9 +51,16 @@ export function WorkspaceOriginalPreview(props: Props) {
     onPanPixelDelta,
     onBedStackLayout,
     imageClipPath,
+    onBaseImageReady,
   } = props;
   const imgRef = useRef<HTMLImageElement>(null);
 
+  useLayoutEffect(() => {
+    onBaseImageReady?.(imgRef.current);
+    return () => {
+      onBaseImageReady?.(null);
+    };
+  }, [onBaseImageReady, src, imageWidth, imageHeight]);
   return (
     <BedFramedImage
       bedWidthMm={bedWidthMm}
@@ -77,6 +86,7 @@ export function WorkspaceOriginalPreview(props: Props) {
           imageHeight={imageHeight}
           aspectWOverH={cropAspectWOverH}
           interactive={cropInteractive}
+          strongOutsideDim={cropInteractive}
           controlledCrop={controlledCrop}
         />
       )}
